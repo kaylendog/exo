@@ -24,6 +24,7 @@ def main():
     )
     parser.add_argument("--stem", help="base name for .c and .h files")
     parser.add_argument("source", type=str, nargs="+", help="source file to compile")
+    parser.add_argument("-t", "--target", help="emission target (c/mlir)")
     parser.add_argument(
         "--version",
         action="version",
@@ -58,8 +59,14 @@ def main():
         for proc in get_procs_from_module(load_user_code(mod))
     ]
 
-    exo.compile_procs(library, outdir, f"{stem}.c", f"{stem}.h")
-    write_depfile(outdir, stem)
+    if args.target == "mlir":
+        exo.compile_procs_mlir(library, outdir, f"{stem}.mlir")
+        write_depfile(outdir, stem)
+    elif args.target == "c":
+        exo.compile_procs_c(library, outdir, f"{stem}.c", f"{stem}.h")
+        write_depfile(outdir, stem)
+    else:
+        parser.error("Must provide a valid target (c/mlir).")
 
 
 def write_depfile(outdir, stem):

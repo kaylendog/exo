@@ -8,9 +8,9 @@ from typing import Optional, Union, List
 import exo.rewrite.LoopIR_scheduling as scheduling
 from exo.rewrite.LoopIR_scheduling import SchedulingError
 
+from .backend import c_compiler, mlir_compiler
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
-from .backend.LoopIR_compiler import run_compile, compile_to_strings
 from .core.configs import Config
 from .frontend.boundscheck import CheckBounds
 from .core.memory import Memory
@@ -143,16 +143,28 @@ class FindDup(LoopIR.LoopIR_Do):
 #   Procedure Objects
 
 
-def compile_procs(proc_list, basedir: Path, c_file: str, h_file: str):
-    c_data, h_data = compile_procs_to_strings(proc_list, h_file)
+def compile_procs_c(proc_list, basedir: Path, c_file: str, h_file: str):
+    c_data, h_data = compile_procs_to_strings_c(proc_list, h_file)
     (basedir / c_file).write_text(c_data)
     (basedir / h_file).write_text(h_data)
 
 
-def compile_procs_to_strings(proc_list, h_file_name: str):
+def compile_procs_to_strings_c(proc_list, h_file_name: str):
     assert isinstance(proc_list, list)
     assert all(isinstance(p, Procedure) for p in proc_list)
-    return run_compile([p._loopir_proc for p in proc_list], h_file_name)
+    return c_compiler.run_compile([p._loopir_proc for p in proc_list], h_file_name)
+
+
+# could probably be tider
+def compile_procs_mlir(proc_list, basedir: Path, mlir_file: str):
+    mlir_data = compile_procs_to_strings_mlir(proc_list)
+    (basedir / mlir_file).write_text(mlir_data)
+
+
+def compile_procs_to_strings_mlir(proc_list):
+    assert isinstance(proc_list, list)
+    assert all(isinstance(p, Procedure) for p in proc_list)
+    return mlir_compiler.run_compile([p._loopir_proc for p in proc_list])
 
 
 class Procedure(ProcedureBase):
