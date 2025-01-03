@@ -10,7 +10,32 @@ dependencies = [
     "build==1.2.2.post1",
     "z3-solver==4.13.3.0",
     "yapf==0.40.2",
+    "xdsl==0.25.0",
 ]
+description = "Exo: Exocompiled Array Language"
+authors = [{ name = "VCLS" }]
+maintainers = [{ name = "Yuka Ikarishi" }]
+license = { file = "LICENSE" }
+keywords = ["exo", "exocompilation", "array", "dsl", "language", "performance"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: C",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Compilers",
+]
+scripts = { exocc = "exo.main:main" }
 
 [dependency-groups]
 dev = [
