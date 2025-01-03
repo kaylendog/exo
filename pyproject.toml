@@ -1,16 +1,40 @@
+[project]
+name = "exo-lang"
+version = "1.0.0"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "PySMT==0.9.6",
+    "asdl-adt==0.1.0",
+    "asdl==0.1.5",
+    "build==1.2.2.post1",
+    "z3-solver==4.13.3.0",
+    "yapf==0.40.2",
+]
+
+[dependency-groups]
+dev = [
+    "coverage==7.6.4",
+    "pre-commit==4.0.1",
+    "pytest-cov==6.0.0",
+    "pytest-xdist==3.6.1",
+    "pytest==8.3.3",
+    "tox==4.23.2",
+    "numpy==2.1.2",
+    "Pillow==11.0.0",
+]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 filterwarnings = [
-    'ignore:lib2to3 package is deprecated:PendingDeprecationWarning'
+    'ignore:lib2to3 package is deprecated:PendingDeprecationWarning',
 ]
 norecursedirs = ['dependencies']
 pythonpath = "src/"
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.black]
 exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
