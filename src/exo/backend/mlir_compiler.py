@@ -1,8 +1,5 @@
 from __future__ import annotations
-
-
-from abc import ABC, abstractmethod
-from typing import TypeAlias, cast, Annotated
+from typing import TypeAlias, Annotated
 
 from xdsl.dialects.builtin import (
     BoolAttr,
@@ -10,165 +7,256 @@ from xdsl.dialects.builtin import (
     Signedness,
     I8,
     I32,
-    I64,
     Float16Type,
     Float32Type,
     Float64Type,
     NoneType,
     TensorType,
+    SymbolRefAttr,
 )
-from xdsl.ir import (
-    Attribute,
+
+from xdsl.ir import Attribute, SSAValue, Region
+from xdsl.irdl import (
     Block,
-    Dialect,
+    IRDLOperation,
     Operation,
     OpResult,
-    OpTraits,
-    Region,
-    SSAValue,
-)
-from xdsl.irdl import (
-    IRDLOperation,
+    Sequence,
     attr_def,
-    base,
     irdl_op_definition,
     operand_def,
-    opt_attr_def,
-    opt_operand_def,
     region_def,
     result_def,
     traits_def,
     var_operand_def,
-    var_result_def,
 )
-from xdsl.pattern_rewriter import RewritePattern
 from xdsl.traits import (
-    CallableOpInterface,
-    HasCanonicalizationPatternsTrait,
-    IsTerminator,
-    OpTrait,
     Pure,
-    SymbolOpInterface,
+    RecursiveMemoryEffect,
+    RecursivelySpeculatable,
 )
 from xdsl.utils.exceptions import VerifyException
-from xdsl.utils.hints import isa
-from xdsl.utils.isattr import isattr
 
 
 # -----------------------------------------------------------------------------
-# LoopIR Type Aliases
+# Exo Type Aliases
 # -----------------------------------------------------------------------------
 
 u8 = IntegerType(8, Signedness.UNSIGNED)
 u16 = IntegerType(16, Signedness.UNSIGNED)
 
-LoopIR_F16: TypeAlias = Float16Type
-LoopIR_F32: TypeAlias = Float32Type
-LoopIR_F64: TypeAlias = Float64Type
-LoopIR_INT8: TypeAlias = I8
-LoopIR_UINT8 = Annotated[IntegerType, u8]
-LoopIR_UINT16 = Annotated[IntegerType, u16]
-LoopIR_INT32: TypeAlias = I32
-LoopIR_Bool: TypeAlias = BoolAttr
-LoopIR_Index: TypeAlias = IntegerType
-LoopIR_Size: TypeAlias = IntegerType
-LoopIR_Stride: TypeAlias = IntegerType
-LoopIR_Error: TypeAlias = NoneType  # needs investigation
-LoopIR_Tensor: TypeAlias = TensorType[Float64Type]
+ExoF16: TypeAlias = Float16Type
+ExoF32: TypeAlias = Float32Type
+ExoF64: TypeAlias = Float64Type
+ExoINT8: TypeAlias = I8
+ExoUINT8 = Annotated[IntegerType, u8]
+ExoUINT16 = Annotated[IntegerType, u16]
+ExoINT32: TypeAlias = I32
+ExoBool: TypeAlias = BoolAttr
+ExoIndex: TypeAlias = IntegerType
+ExoSize: TypeAlias = IntegerType
+ExoStride: TypeAlias = IntegerType
+ExoError: TypeAlias = NoneType  # needs investigation
+ExoTensor: TypeAlias = TensorType[Float64Type]
 
 # union types - might be wrong
-LoopIR_Int: TypeAlias = LoopIR_INT8 | LoopIR_UINT8 | LoopIR_UINT16 | LoopIR_INT32
-LoopIR_Num: TypeAlias = (
-    LoopIR_F16 | LoopIR_F32 | LoopIR_F64 | LoopIR_INT8 | LoopIR_INT32
+ExoInt: TypeAlias = ExoINT8 | ExoUINT8 | ExoUINT16 | ExoINT32
+ExoNum: TypeAlias = ExoF16 | ExoF32 | ExoF64 | ExoINT8 | ExoINT32
+
+ExoObject: TypeAlias = (
+    ExoF16 | ExoF32 | ExoF64 | ExoINT8 | ExoUINT8 | ExoUINT16 | ExoINT32 | ExoBool
 )
 
-LoopIR_Object: TypeAlias = (
-    LoopIR_F16
-    | LoopIR_F32
-    | LoopIR_F64
-    | LoopIR_INT8
-    | LoopIR_UINT8
-    | LoopIR_UINT16
-    | LoopIR_INT32
-    | LoopIR_Bool
-)
+ExoType: TypeAlias = SymbolRefAttr
+ExoMem: TypeAlias = SymbolRefAttr
+
 
 # -----------------------------------------------------------------------------
-# LoopIR Stmt Operations
+# Exo Stmt Operations
 # -----------------------------------------------------------------------------
 
 
 @irdl_op_definition
 class AssignOp(IRDLOperation):
-    name = "loop_ir.assign"
+    name = "exo.assign"
+    lhs = operand_def(ExoMem)
+    rhs = operand_def(SSAValue)
 
 
 @irdl_op_definition
 class ReduceOp(IRDLOperation):
-    name = "loop_ir.reduce"
+    name = "exo.reduce"
+    lhs = operand_def(ExoMem)
+    rhs = operand_def(SSAValue)
 
 
 @irdl_op_definition
-class WriteOp(IRDLOperation):
-    name = "loop_ir.write"
-
-
-@irdl_op_definition
-class PassOp(IRDLOperation):
-    name = "loop_ir.pass"
+class WriteConfig(IRDLOperation):
+    name = "exo.write_config"
 
 
 @irdl_op_definition
 class ConditionalOp(IRDLOperation):
-    name = "loop_ir.conditional"
+    name = "exo.conditional"
+    condition = operand_def(ExoBool)
+
+    true_region = region_def("single_block")
+    false_region = region_def("single_block")
+
+    traits = traits_def(RecursiveMemoryEffect, RecursivelySpeculatable)
+
+    def __init__(
+        self,
+        cond: SSAValue | Operation,
+        true_region: Region | Sequence[Block] | Sequence[Operation],
+        false_region: Region | Sequence[Block] | Sequence[Operation],
+        attr_dict: dict[str, Attribute] = {},
+    ):
+        super.__init__(
+            operands=[cond],
+            result_types=[NoneType],
+            regions=[true_region, false_region],
+            attributes=attr_dict,
+        )
 
 
+# TODO: needs loop mode
 @irdl_op_definition
 class ForOp(IRDLOperation):
-    name = "loop_ir.for"
+    name = "exo.for"
+
+    lo = operand_def(SSAValue)
+    hi = operand_def(SSAValue)
+
+    body = region_def("single_block")
+
+    traits = traits_def(
+        RecursiveMemoryEffect(),
+    )
+
+    def __init__(
+        self,
+        lo: SSAValue | Operation,
+        hi: SSAValue | Operation,
+        body: Region | Sequence[Block] | Sequence[Operation],
+        attr_dict: dict[str, Attribute] = {},
+    ):
+        if isinstance(body, Block):
+            body = [body]
+
+        super.__init__(
+            operands=[lo, hi],
+            result_types=[NoneType],
+            regions=[body],
+            attributes=attr_dict,
+        )
 
 
 @irdl_op_definition
 class AllocOp(IRDLOperation):
-    name = "loop_ir.alloc"
+    name = "exo.alloc"
+
+    target = attr_def(SymbolRefAttr)
+    type = attr_def(SymbolRefAttr)
+    mem = attr_def(SymbolRefAttr)
+
+    def __init__(
+        self,
+        target: str | SymbolRefAttr,
+        type: str | SymbolRefAttr,
+        mem: str | SymbolRefAttr,
+    ):
+        if isinstance(target, str):
+            target = SymbolRefAttr(target)
+
+        if isinstance(type, str):
+            type = SymbolRefAttr(type)
+
+        if isinstance(mem, str):
+            mem = SymbolRefAttr(mem)
+
+        super.__init__(
+            result_types=[NoneType],
+            attributes={"mem": mem, "type": type, "target": target},
+        )
 
 
 @irdl_op_definition
 class FreeOp(IRDLOperation):
-    name = "loop_ir.free"
+    name = "exo.free"
+
+    target = attr_def(SymbolRefAttr)
+    type = attr_def(SymbolRefAttr)
+    mem = attr_def(SymbolRefAttr)
+
+    def __init__(
+        self,
+        target: str | SymbolRefAttr,
+        type: str | SymbolRefAttr,
+        mem: str | SymbolRefAttr,
+    ):
+        if isinstance(target, str):
+            target = SymbolRefAttr(target)
+
+        if isinstance(type, str):
+            type = SymbolRefAttr(type)
+
+        if isinstance(mem, str):
+            mem = SymbolRefAttr(mem)
+
+        super.__init__(
+            result_types=[NoneType],
+            attributes={"mem": mem, "type": type, "target": target},
+        )
 
 
 @irdl_op_definition
 class CallOp(IRDLOperation):
-    name = "loop_ir.call"
+    name = "exo.call"
+    arguments = var_operand_def()
+    callee = attr_def(SymbolRefAttr)
+
+    def __init__(
+        self,
+        callee: str | SymbolRefAttr,
+        arguments: list[SSAValue | OpResult],
+    ):
+        if isinstance(callee, str):
+            callee = SymbolRefAttr(callee)
+
+        super.__init__(
+            operands=arguments,
+            result_types=[NoneType],
+            attributes={"callee": callee},
+        )
 
 
 @irdl_op_definition
 class WindowStmtOp(IRDLOperation):
-    name = "loop_ir.window_stmt"
+    name = "exo.window_stmt"
 
 
 # -----------------------------------------------------------------------------
-# LoopIR Expr Operations
+# Exo Expr Operations
 # -----------------------------------------------------------------------------
 
 
 @irdl_op_definition
 class ReadOp(IRDLOperation):
-    name = "loop_ir.read"
+    name = "exo.read"
 
 
 @irdl_op_definition
 class ConstantOp(IRDLOperation):
-    name = "loop_ir.constant"
-    value = attr_def(LoopIR_Object)
-    res = result_def(LoopIR_Object)
+    name = "exo.constant"
+    value = attr_def(ExoObject)
+    res = result_def(ExoObject)
 
     traits = traits_def(Pure())
 
-    def __init__(self, value: LoopIR_Object):
+    def __init__(self, value: ExoObject):
         self.value = value
-        self.res = LoopIR_Object
+        self.res = ExoObject
 
     def verify_(self) -> None:
         if not self.res.type == self.value.type:
@@ -183,29 +271,52 @@ class ConstantOp(IRDLOperation):
 
 @irdl_op_definition
 class USubOp(IRDLOperation):
-    name = "loop_ir.usub"
+    name = "exo.usub"
 
 
 @irdl_op_definition
 class BinOp(IRDLOperation):
-    name = "loop_ir.binop"
+    name = "exo.binop"
+
+    lhs = operand_def(ExoObject)
+    rhs = operand_def(ExoObject)
+    result = result_def(ExoObject)
+
+    operation = attr_def(SymbolRefAttr)
+
+    traits = traits_def(Pure())
+
+    def __init__(
+        self,
+        operation: str | SymbolRefAttr,
+        lhs: SSAValue | Operation,
+        rhs: SSAValue | Operation,
+    ):
+        if isinstance(operation, str):
+            operation = SymbolRefAttr(operation)
+
+        super().__init__(
+            operands=[lhs, rhs],
+            result_types=[lhs.type],
+            attributes={"operation": operation},
+        )
 
 
 @irdl_op_definition
 class Extern(IRDLOperation):
-    name = "loop_ir.extern"
+    name = "exo.extern"
 
 
 @irdl_op_definition
 class WindowExprOp(IRDLOperation):
-    name = "loop_ir.window_expr"
+    name = "exo.window_expr"
 
 
 @irdl_op_definition
 class StrideExprOp(IRDLOperation):
-    name = "loop_ir.stride_expr"
+    name = "exo.stride_expr"
 
 
 @irdl_op_definition
 class CastOp(IRDLOperation):
-    name = "loop_ir.cast"
+    name = "exo.cast"
