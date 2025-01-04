@@ -59,6 +59,8 @@ class IRGenerator:
 
     symbol_table: ScopedDict[str, SSAValue] | None = None
 
+    seen_procs: set[str] = set()
+
     def __init__(self):
         self.module = ModuleOp([])
         self.builder = Builder.at_end(self.module.body.blocks[0])
@@ -85,6 +87,13 @@ class IRGenerator:
         return self.module
 
     def generate_proc(self, proc):
+        # prevent infinite generation of procedures - shouldn't happen, but LoopIR embeds entire procedures in its AST
+        # rather than just referring to them.
+        if proc.name in self.seen_procs:
+            return
+
+        self.seen_procs.add(proc.name)
+
         parent_builder = self.builder
         self.symbol_table = ScopedDict[str, SSAValue]()
 
