@@ -157,14 +157,16 @@ def compile_procs_to_strings_c(proc_list, h_file_name: str):
 
 # could probably be tider
 def compile_procs_mlir(proc_list, basedir: Path, mlir_file: str):
-    mlir_data = compile_procs_to_strings_mlir(proc_list)
+    mlir_data = compile_procs_to_strings_mlir(proc_list, mlir_file)
     (basedir / mlir_file).write_text(mlir_data)
 
 
-def compile_procs_to_strings_mlir(proc_list):
+def compile_procs_to_strings_mlir(proc_list, mlir_file_name: str):
     assert isinstance(proc_list, list)
     assert all(isinstance(p, Procedure) for p in proc_list)
-    return mlir.compiler.run_compile([p._loopir_proc for p in proc_list])
+    return mlir.compiler.run_compile(
+        [p._loopir_proc for p in proc_list], mlir_file_name
+    )
 
 
 class Procedure(ProcedureBase):

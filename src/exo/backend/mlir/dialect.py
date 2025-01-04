@@ -3,17 +3,19 @@ from typing import TypeAlias, Annotated
 
 from xdsl.dialects.builtin import (
     BoolAttr,
-    IntegerType,
-    Signedness,
-    I8,
-    I32,
     Float16Type,
     Float32Type,
     Float64Type,
+    I32,
+    I8,
+    IntegerType,
     NoneType,
-    TensorType,
+    Signedness,
+    StringAttr,
     SymbolRefAttr,
+    TensorType,
     TupleType,
+    FunctionType,
 )
 
 from xdsl.ir import Attribute, SSAValue, Region, Dialect
@@ -35,6 +37,7 @@ from xdsl.traits import (
     Pure,
     RecursiveMemoryEffect,
     RecursivelySpeculatable,
+    SymbolOpInterface,
 )
 from xdsl.utils.exceptions import VerifyException
 
@@ -50,8 +53,8 @@ ExoF16: TypeAlias = Float16Type
 ExoF32: TypeAlias = Float32Type
 ExoF64: TypeAlias = Float64Type
 ExoINT8: TypeAlias = I8
-ExoUINT8 = Annotated[IntegerType, u8]
-ExoUINT16 = Annotated[IntegerType, u16]
+ExoUINT8: TypeAlias = Annotated[IntegerType, u8]
+ExoUINT16: TypeAlias = Annotated[IntegerType, u16]
 ExoINT32: TypeAlias = I32
 ExoBool: TypeAlias = BoolAttr
 ExoIndex: TypeAlias = IntegerType
@@ -76,6 +79,32 @@ ExoType: TypeAlias = SymbolRefAttr
 ExoMem: TypeAlias = SymbolRefAttr
 
 
+@irdl_op_definition
+class ProcedureOp(IRDLOperation):
+    name = "exo.proc"
+    body = region_def()
+    sym_name = attr_def(StringAttr)
+    function_type = attr_def(FunctionType)
+
+    # TODO: may need ProcedureOpCallableInterface or similar
+    traits = traits_def(SymbolOpInterface())
+
+    def __init__(
+        self,
+        name: str,
+        ftype: FunctionType,
+        region: Region | type[Region.DEFAULT] = Region.DEFAULT,
+    ):
+        attributes: dict[str, Attribute] = {"sym_name": StringAttr(name)}
+        if not isinstance(region, Region):
+            region = Region(Block(arg_types=ftype.input))
+
+        return super().__init__(
+            regions=[region],
+            attributes=attributes,
+        )
+
+
 # -----------------------------------------------------------------------------
 # Exo Stmt Operations
 # -----------------------------------------------------------------------------
@@ -88,14 +117,14 @@ class AssignOp(IRDLOperation):
     operand = attr_def(SymbolRefAttr)
     type = attr_def(SymbolRefAttr)
 
-    idx = operand_def(ExoObject)
+    idx = var_operand_def(ExoObject)
     rhs = operand_def(ExoObject)
 
     def __init__(
         self,
         operand: str | SymbolRefAttr,
         type: str | SymbolRefAttr,
-        idx: SSAValue | Operation,
+        idx: list[SSAValue | Operation],
         rhs: SSAValue | Operation,
     ):
         if isinstance(operand, str):
@@ -104,7 +133,7 @@ class AssignOp(IRDLOperation):
         if isinstance(type, str):
             type = SymbolRefAttr(type)
 
-        super.__init__(
+        return super().__init__(
             operands=[idx, rhs],
             result_types=[NoneType],
             attributes={"operand": operand, "type": type},
@@ -134,7 +163,7 @@ class ReduceOp(IRDLOperation):
         if isinstance(type, str):
             type = SymbolRefAttr(type)
 
-        super.__init__(
+        return super.__init__(
             operands=[idx, rhs],
             result_types=[NoneType],
             attributes={"operand": operand, "type": type},
@@ -142,27 +171,24 @@ class ReduceOp(IRDLOperation):
 
 
 @irdl_op_definition
-class WriteConfig(IRDLOperation):
+class WriteConfigOp(IRDLOperation):
     name = "exo.write_config"
 
     operand = attr_def(SymbolRefAttr)
-    field = attr_def(SymbolRefAttr)
+    field = attr_def(StringAttr)
 
     value = operand_def(ExoObject)
 
     def __init__(
         self,
         operand: str | SymbolRefAttr,
-        field: str | SymbolRefAttr,
+        field: str,
         value: SSAValue | Operation,
     ):
         if isinstance(operand, str):
             operand = SymbolRefAttr(operand)
 
-        if isinstance(field, str):
-            field = SymbolRefAttr(field)
-
-        super.__init__(
+        return super.__init__(
             operands=[value],
             result_types=[NoneType],
             attributes={"operand": operand, "field": field},
@@ -186,7 +212,7 @@ class ConditionalOp(IRDLOperation):
         false_region: Region | Sequence[Block] | Sequence[Operation],
         attr_dict: dict[str, Attribute] = {},
     ):
-        super.__init__(
+        return super.__init__(
             operands=[cond],
             result_types=[NoneType],
             regions=[true_region, false_region],
@@ -218,7 +244,7 @@ class ForOp(IRDLOperation):
         if isinstance(body, Block):
             body = [body]
 
-        super.__init__(
+        return super.__init__(
             operands=[lo, hi],
             result_types=[NoneType],
             regions=[body],
@@ -249,7 +275,7 @@ class AllocOp(IRDLOperation):
         if isinstance(mem, str):
             mem = SymbolRefAttr(mem)
 
-        super.__init__(
+        return super.__init__(
             result_types=[NoneType],
             attributes={"mem": mem, "type": type, "target": target},
         )
@@ -278,7 +304,7 @@ class FreeOp(IRDLOperation):
         if isinstance(mem, str):
             mem = SymbolRefAttr(mem)
 
-        super.__init__(
+        return super.__init__(
             result_types=[NoneType],
             attributes={"mem": mem, "type": type, "target": target},
         )
@@ -292,13 +318,13 @@ class CallOp(IRDLOperation):
 
     def __init__(
         self,
-        callee: str | SymbolRefAttr,
+        callee: ProcedureOp,
         arguments: list[SSAValue | OpResult],
     ):
         if isinstance(callee, str):
             callee = SymbolRefAttr(callee)
 
-        super.__init__(
+        return super.__init__(
             operands=arguments,
             result_types=[NoneType],
             attributes={"callee": callee},
@@ -308,6 +334,19 @@ class CallOp(IRDLOperation):
 @irdl_op_definition
 class WindowStmtOp(IRDLOperation):
     name = "exo.window_stmt"
+
+    sym_name = attr_def(SymbolRefAttr)
+    rhs = operand_def(ExoObject)
+
+    def __init__(self, sym_name: str | SymbolRefAttr, rhs: SSAValue | Operation):
+        if isinstance(sym_name, str):
+            sym_name = SymbolRefAttr(sym_name)
+
+        return super().__init__(
+            operands=[rhs],
+            result_types=[NoneType],
+            attributes={"sym_name": sym_name},
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -321,15 +360,15 @@ class ReadOp(IRDLOperation):
 
     operand = attr_def(SymbolRefAttr)
 
-    idx = operand_def(ExoObject)
+    idx = var_operand_def()
 
     res = result_def(ExoObject)
 
-    def __init__(self, operand: str | SymbolRefAttr, idx: SSAValue | Operation):
+    def __init__(self, operand: str | SymbolRefAttr, idx: list[SSAValue | OpResult]):
         if isinstance(operand, str):
             operand = SymbolRefAttr(operand)
 
-        super().__init__(
+        return super().__init__(
             operands=[idx], result_types=[ExoObject], attributes={"operand": operand}
         )
 
@@ -343,8 +382,7 @@ class ConstantOp(IRDLOperation):
     traits = traits_def(Pure())
 
     def __init__(self, value: ExoObject):
-        self.value = value
-        self.res = ExoObject
+        return super().__init__(result_types=[ExoObject], attributes={"value": value})
 
     def verify_(self) -> None:
         if not self.res.type == self.value.type:
@@ -368,7 +406,7 @@ class USubOp(IRDLOperation):
     traits = traits_def(Pure())
 
     def __init__(self, operand: SSAValue | Operation):
-        super().__init__(operands=[operand], result_types=[operand.type])
+        return super().__init__(operands=[operand], result_types=[operand.type])
 
 
 @irdl_op_definition
@@ -392,7 +430,7 @@ class BinOp(IRDLOperation):
         if isinstance(operation, str):
             operation = SymbolRefAttr(operation)
 
-        super().__init__(
+        return super().__init__(
             operands=[lhs, rhs],
             result_types=[lhs.type],
             attributes={"operation": operation},
@@ -413,7 +451,7 @@ class ExternOp(IRDLOperation):
         if isinstance(callee, str):
             callee = SymbolRefAttr(callee)
 
-        super().__init__(
+        return super().__init__(
             operands=args,
             result_types=[ExoObject],
             attributes={"callee": callee},
@@ -434,7 +472,7 @@ class WindowExprOp(IRDLOperation):
         if isinstance(operand, str):
             operand = SymbolRefAttr(operand)
 
-        super().__init__(
+        return super().__init__(
             operands=[access],
             result_types=[ExoObject],
             attributes={"operand": operand},
@@ -455,13 +493,13 @@ class StrideExprOp(IRDLOperation):
         if isinstance(operand, str):
             operand = SymbolRefAttr(operand)
 
-        super().__init__(
+        return super().__init__(
             operands=[dim], result_types=[ExoObject], attributes={"operand": operand}
         )
 
 
 @irdl_op_definition
-class ReadConfig(IRDLOperation):
+class ReadConfigOp(IRDLOperation):
     name = "exo.read_config"
 
     operand = attr_def(SymbolRefAttr)
@@ -476,7 +514,7 @@ class ReadConfig(IRDLOperation):
         if isinstance(field, str):
             field = SymbolRefAttr(field)
 
-        super().__init__(
+        return super().__init__(
             result_types=[ExoObject],
             attributes={"operand": operand, "field": field},
         )
@@ -485,22 +523,22 @@ class ReadConfig(IRDLOperation):
 Exo = Dialect(
     "exo",
     [
-        AssignOp,
-        ReduceOp,
-        WriteConfig,
-        ConditionalOp,
-        ForOp,
         AllocOp,
-        FreeOp,
-        CallOp,
-        WindowStmtOp,
-        ReadOp,
-        ConstantOp,
-        USubOp,
+        AssignOp,
         BinOp,
+        CallOp,
+        ConditionalOp,
+        ConstantOp,
         ExternOp,
-        WindowExprOp,
+        ForOp,
+        FreeOp,
+        ReadConfigOp,
+        ReadOp,
+        ReduceOp,
         StrideExprOp,
-        ReadConfig,
+        USubOp,
+        WindowExprOp,
+        WindowStmtOp,
+        WriteConfigOp,
     ],
 )
