@@ -8,7 +8,7 @@ from typing import Optional, Union, List
 import exo.rewrite.LoopIR_scheduling as scheduling
 from exo.rewrite.LoopIR_scheduling import SchedulingError
 
-from .backend import c_compiler, mlir_compiler
+from .backend import c_compiler, mlir
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
 from .core.configs import Config
@@ -164,7 +164,7 @@ def compile_procs_mlir(proc_list, basedir: Path, mlir_file: str):
 def compile_procs_to_strings_mlir(proc_list):
     assert isinstance(proc_list, list)
     assert all(isinstance(p, Procedure) for p in proc_list)
-    return mlir_compiler.run_compile([p._loopir_proc for p in proc_list])
+    return mlir.compiler.run_compile([p._loopir_proc for p in proc_list])
 
 
 class Procedure(ProcedureBase):
