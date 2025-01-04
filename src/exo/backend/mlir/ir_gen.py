@@ -209,7 +209,7 @@ class IRGenerator:
         self.builder.insert(FreeOp(free.name, free.type, free.mem))
 
     def generate_call_stmt(self, call):
-        # TODO: this might not work
+        # TODO: procedure generation should be top-level, then call should simply use a SymRefAttr to refer to the procedure
         self.generate_proc(call.f)
         args = [self.generate_expr(arg) for arg in call.args]
         self.builder.insert(CallOp(call.f.name, args))
