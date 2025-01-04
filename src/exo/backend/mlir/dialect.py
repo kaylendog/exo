@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TypeAlias, Annotated
+from typing import TypeAlias, Annotated, cast
 
 from xdsl.dialects.builtin import (
     BoolAttr,
@@ -16,9 +16,13 @@ from xdsl.dialects.builtin import (
     TensorType,
     TupleType,
     FunctionType,
+    AnyFloatAttr,
+    FloatAttr,
+    AnyFloat,
+    AnyIntegerAttr,
 )
 
-from xdsl.ir import Attribute, SSAValue, Region, Dialect, TypeAttribute
+from xdsl.ir import Attribute, SSAValue, Region, Dialect
 from xdsl.irdl import (
     Block,
     IRDLOperation,
@@ -34,6 +38,7 @@ from xdsl.irdl import (
     var_operand_def,
 )
 from xdsl.traits import (
+    ConstantLike,
     Pure,
     RecursiveMemoryEffect,
     RecursivelySpeculatable,
@@ -76,7 +81,9 @@ ExoObject: TypeAlias = (
 ExoWindowAccess = TupleType([ExoObject, ExoObject]) | ExoObject
 
 ExoType: TypeAlias = SymbolRefAttr
-ExoMem: TypeAlias = SymbolRefAttr
+ExoMem: TypeAlias = StringAttr
+
+AnyValueAttr: TypeAlias = AnyIntegerAttr | AnyFloatAttr | BoolAttr
 
 
 @irdl_op_definition
@@ -118,19 +125,17 @@ class AssignOp(IRDLOperation):
     indices = var_operand_def(ExoObject)
 
     sym_name = attr_def(StringAttr)
-    type = attr_def(SymbolRefAttr)
+    type = attr_def(StringAttr)
 
     def __init__(
         self,
         sym_name: str,
-        type: str | SymbolRefAttr,
+        type: str,
         indices: list[SSAValue | Operation],
         rhs: SSAValue | Operation,
     ):
         sym_name = StringAttr(sym_name)
-
-        if isinstance(type, str):
-            type = SymbolRefAttr(type)
+        type = StringAttr(type)
 
         return super().__init__(
             operands=[rhs, indices],
@@ -146,19 +151,17 @@ class ReduceOp(IRDLOperation):
     idx = var_operand_def(ExoObject)
 
     sym_name = attr_def(StringAttr)
-    type = attr_def(SymbolRefAttr)
+    type = attr_def(StringAttr)
 
     def __init__(
         self,
         sym_name: str,
-        type: str | SymbolRefAttr,
+        type: str,
         idx: SSAValue | Operation,
         rhs: SSAValue | Operation,
     ):
         sym_name = StringAttr(sym_name)
-
-        if isinstance(type, str):
-            type = SymbolRefAttr(type)
+        type = StringAttr(type)
 
         return super().__init__(
             operands=[rhs, idx],
@@ -170,30 +173,30 @@ class ReduceOp(IRDLOperation):
 class WriteConfigOp(IRDLOperation):
     name = "exo.write_config"
 
-    operand = attr_def(SymbolRefAttr)
+    sym_name = attr_def(StringAttr)
     field = attr_def(StringAttr)
 
     value = operand_def(ExoObject)
 
     def __init__(
         self,
-        operand: str | SymbolRefAttr,
+        operand: str,
         field: str,
         value: SSAValue | Operation,
     ):
-        if isinstance(operand, str):
-            operand = SymbolRefAttr(operand)
+        operand = StringAttr(operand)
+        field = StringAttr(field)
 
         return super.__init__(
             operands=[value],
-            result_types=[NoneType],
             attributes={"operand": operand, "field": field},
         )
 
 
 @irdl_op_definition
-class ConditionalOp(IRDLOperation):
-    name = "exo.conditional"
+class IfOp(IRDLOperation):
+    name = "exo.if"
+
     condition = operand_def(ExoBool)
 
     true_region = region_def("single_block")
@@ -210,7 +213,6 @@ class ConditionalOp(IRDLOperation):
     ):
         return super.__init__(
             operands=[cond],
-            result_types=[NoneType],
             regions=[true_region, false_region],
             attributes=attr_dict,
         )
@@ -317,16 +319,14 @@ class CallOp(IRDLOperation):
 class WindowStmtOp(IRDLOperation):
     name = "exo.window_stmt"
 
-    sym_name = attr_def(SymbolRefAttr)
+    sym_name = attr_def(StringAttr)
     rhs = operand_def(ExoObject)
 
-    def __init__(self, sym_name: str | SymbolRefAttr, rhs: SSAValue | Operation):
-        if isinstance(sym_name, str):
-            sym_name = SymbolRefAttr(sym_name)
+    def __init__(self, sym_name: StringAttr, rhs: SSAValue | Operation):
+        sym_name = StringAttr(sym_name)
 
         return super().__init__(
             operands=[rhs],
-            result_types=[NoneType],
             attributes={"sym_name": sym_name},
         )
 
@@ -340,31 +340,33 @@ class WindowStmtOp(IRDLOperation):
 class ReadOp(IRDLOperation):
     name = "exo.read"
 
-    operand = attr_def(SymbolRefAttr)
-
+    sym_name = attr_def(StringAttr)
     idx = var_operand_def()
-
     res = result_def(ExoObject)
 
-    def __init__(self, operand: str | SymbolRefAttr, idx: list[SSAValue | OpResult]):
-        if isinstance(operand, str):
-            operand = SymbolRefAttr(operand)
-
+    def __init__(self, sym_name: str, idx: list[SSAValue | OpResult]):
+        sym_name = StringAttr(sym_name)
         return super().__init__(
-            operands=[idx], result_types=[ExoObject], attributes={"operand": operand}
+            operands=[idx], result_types=[ExoObject], attributes={"sym_name": sym_name}
         )
 
 
 @irdl_op_definition
 class ConstantOp(IRDLOperation):
     name = "exo.constant"
-    value = attr_def(ExoObject)
+    value = attr_def(AnyValueAttr)
     res = result_def(ExoObject)
 
-    traits = traits_def(Pure())
+    traits = traits_def(Pure(), ConstantLike())
 
-    def __init__(self, value: ExoObject):
-        return super().__init__(result_types=[ExoObject], attributes={"value": value})
+    def __init__(self, value: int | float | bool):
+        value = cast(AnyIntegerAttr | FloatAttr[AnyFloat] | BoolAttr, value)
+        value_type = value.type
+
+        return super().__init__(
+            result_types=[value_type],
+            attributes={"value": value},
+        )
 
     def verify_(self) -> None:
         if not self.res.type == self.value.type:
@@ -444,20 +446,18 @@ class ExternOp(IRDLOperation):
 class WindowExprOp(IRDLOperation):
     name = "exo.window_expr"
 
-    operand = attr_def(SymbolRefAttr)
-
     access = operand_def(ExoWindowAccess)
-
     res = result_def(ExoObject)
 
-    def __init__(self, operand: str | SymbolRefAttr, access: SSAValue | Operation):
-        if isinstance(operand, str):
-            operand = SymbolRefAttr(operand)
+    operand = attr_def(StringAttr)
+
+    def __init__(self, sym_name: str, access: SSAValue | Operation):
+        sym_name = StringAttr(sym_name)
 
         return super().__init__(
             operands=[access],
             result_types=[ExoObject],
-            attributes={"operand": operand},
+            attributes={"sym_name": sym_name},
         )
 
 
@@ -465,18 +465,16 @@ class WindowExprOp(IRDLOperation):
 class StrideExprOp(IRDLOperation):
     name = "exo.stride_expr"
 
-    operand = attr_def(SymbolRefAttr)
-
     dim = operand_def(ExoObject)
-
     res = result_def(ExoObject)
 
-    def __init__(self, operand: str | SymbolRefAttr, dim: SSAValue | Operation):
-        if isinstance(operand, str):
-            operand = SymbolRefAttr(operand)
+    operand = attr_def(StringAttr)
+
+    def __init__(self, sym_name: str, dim: SSAValue | Operation):
+        sym_name = StringAttr(sym_name)
 
         return super().__init__(
-            operands=[dim], result_types=[ExoObject], attributes={"operand": operand}
+            operands=[dim], result_types=[ExoObject], attributes={"sym_name": sym_name}
         )
 
 
@@ -484,21 +482,17 @@ class StrideExprOp(IRDLOperation):
 class ReadConfigOp(IRDLOperation):
     name = "exo.read_config"
 
-    operand = attr_def(SymbolRefAttr)
-    field = attr_def(SymbolRefAttr)
+    sym_name = attr_def(StringAttr)
+    field = attr_def(StringAttr)
 
     res = result_def(ExoObject)
 
-    def __init__(self, operand: str | SymbolRefAttr, field: str | SymbolRefAttr):
-        if isinstance(operand, str):
-            operand = SymbolRefAttr(operand)
-
-        if isinstance(field, str):
-            field = SymbolRefAttr(field)
-
+    def __init__(self, sym_name: str, field: str):
+        sym_name = StringAttr(sym_name)
+        field = StringAttr(field)
         return super().__init__(
             result_types=[ExoObject],
-            attributes={"operand": operand, "field": field},
+            attributes={"sym_name": sym_name, "field": field},
         )
 
 
@@ -509,7 +503,7 @@ Exo = Dialect(
         AssignOp,
         BinOp,
         CallOp,
-        ConditionalOp,
+        IfOp,
         ConstantOp,
         ExternOp,
         ForOp,

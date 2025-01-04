@@ -13,7 +13,7 @@ from .dialect import (
     AssignOp,
     BinOp,
     CallOp,
-    ConditionalOp,
+    IfOp,
     ExternOp,
     ForOp,
     FreeOp,
@@ -173,9 +173,7 @@ class IRGenerator:
 
         # cleanup and construct
         self.builder = parent_builder
-        self.builder.insert(
-            ConditionalOp(cond, Region(true_block), Region(false_block))
-        )
+        self.builder.insert(IfOp(cond, Region(true_block), Region(false_block)))
 
     def generate_for_stmt(self, for_stmt):
         lo = self.generate_expr(for_stmt.lo)
