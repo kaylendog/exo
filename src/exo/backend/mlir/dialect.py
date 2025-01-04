@@ -18,7 +18,7 @@ from xdsl.dialects.builtin import (
     FunctionType,
 )
 
-from xdsl.ir import Attribute, SSAValue, Region, Dialect
+from xdsl.ir import Attribute, SSAValue, Region, Dialect, TypeAttribute
 from xdsl.irdl import (
     Block,
     IRDLOperation,
@@ -114,29 +114,27 @@ class ProcedureOp(IRDLOperation):
 class AssignOp(IRDLOperation):
     name = "exo.assign"
 
-    operand = attr_def(SymbolRefAttr)
-    type = attr_def(SymbolRefAttr)
-
-    idx = var_operand_def(ExoObject)
     rhs = operand_def(ExoObject)
+    indices = var_operand_def(ExoObject)
+
+    sym_name = attr_def(StringAttr)
+    type = attr_def(SymbolRefAttr)
 
     def __init__(
         self,
-        operand: str | SymbolRefAttr,
+        sym_name: str,
         type: str | SymbolRefAttr,
-        idx: list[SSAValue | Operation],
+        indices: list[SSAValue | Operation],
         rhs: SSAValue | Operation,
     ):
-        if isinstance(operand, str):
-            operand = SymbolRefAttr(operand)
+        sym_name = StringAttr(sym_name)
 
         if isinstance(type, str):
             type = SymbolRefAttr(type)
 
         return super().__init__(
-            operands=[idx, rhs],
-            result_types=[NoneType],
-            attributes={"operand": operand, "type": type},
+            operands=[rhs, indices],
+            attributes={"sym_name": sym_name, "type": type},
         )
 
 
@@ -144,29 +142,27 @@ class AssignOp(IRDLOperation):
 class ReduceOp(IRDLOperation):
     name = "exo.reduce"
 
-    operand = attr_def(SymbolRefAttr)
-    type = attr_def(SymbolRefAttr)
-
-    idx = operand_def(ExoObject)
     rhs = operand_def(ExoObject)
+    idx = var_operand_def(ExoObject)
+
+    sym_name = attr_def(StringAttr)
+    type = attr_def(SymbolRefAttr)
 
     def __init__(
         self,
-        operand: str | SymbolRefAttr,
+        sym_name: str,
         type: str | SymbolRefAttr,
         idx: SSAValue | Operation,
         rhs: SSAValue | Operation,
     ):
-        if isinstance(operand, str):
-            operand = SymbolRefAttr(operand)
+        sym_name = StringAttr(sym_name)
 
         if isinstance(type, str):
             type = SymbolRefAttr(type)
 
-        return super.__init__(
-            operands=[idx, rhs],
-            result_types=[NoneType],
-            attributes={"operand": operand, "type": type},
+        return super().__init__(
+            operands=[rhs, idx],
+            attributes={"sym_name": sym_name, "type": type},
         )
 
 
@@ -244,9 +240,8 @@ class ForOp(IRDLOperation):
         if isinstance(body, Block):
             body = [body]
 
-        return super.__init__(
+        return super().__init__(
             operands=[lo, hi],
-            result_types=[NoneType],
             regions=[body],
             attributes=attr_dict,
         )
@@ -256,27 +251,21 @@ class ForOp(IRDLOperation):
 class AllocOp(IRDLOperation):
     name = "exo.alloc"
 
-    target = attr_def(SymbolRefAttr)
-    type = attr_def(SymbolRefAttr)
-    mem = attr_def(SymbolRefAttr)
+    target = attr_def(StringAttr)
+    type = attr_def(StringAttr)
+    mem = attr_def(StringAttr)
 
     def __init__(
         self,
-        target: str | SymbolRefAttr,
-        type: str | SymbolRefAttr,
-        mem: str | SymbolRefAttr,
+        target: str,
+        type: str,
+        mem: str,
     ):
-        if isinstance(target, str):
-            target = SymbolRefAttr(target)
+        target = StringAttr(target)
+        type = StringAttr(type)
+        mem = StringAttr(mem)
 
-        if isinstance(type, str):
-            type = SymbolRefAttr(type)
-
-        if isinstance(mem, str):
-            mem = SymbolRefAttr(mem)
-
-        return super.__init__(
-            result_types=[NoneType],
+        return super().__init__(
             attributes={"mem": mem, "type": type, "target": target},
         )
 
@@ -285,27 +274,21 @@ class AllocOp(IRDLOperation):
 class FreeOp(IRDLOperation):
     name = "exo.free"
 
-    target = attr_def(SymbolRefAttr)
-    type = attr_def(SymbolRefAttr)
-    mem = attr_def(SymbolRefAttr)
+    target = attr_def(StringAttr)
+    type = attr_def(StringAttr)
+    mem = attr_def(StringAttr)
 
     def __init__(
         self,
-        target: str | SymbolRefAttr,
-        type: str | SymbolRefAttr,
-        mem: str | SymbolRefAttr,
+        target: str,
+        type: str,
+        mem: str,
     ):
-        if isinstance(target, str):
-            target = SymbolRefAttr(target)
+        target = StringAttr(target)
+        type = StringAttr(type)
+        mem = StringAttr(mem)
 
-        if isinstance(type, str):
-            type = SymbolRefAttr(type)
-
-        if isinstance(mem, str):
-            mem = SymbolRefAttr(mem)
-
-        return super.__init__(
-            result_types=[NoneType],
+        return super().__init__(
             attributes={"mem": mem, "type": type, "target": target},
         )
 
@@ -324,9 +307,8 @@ class CallOp(IRDLOperation):
         if isinstance(callee, str):
             callee = SymbolRefAttr(callee)
 
-        return super.__init__(
-            operands=arguments,
-            result_types=[NoneType],
+        return super().__init__(
+            operands=[arguments],
             attributes={"callee": callee},
         )
 
@@ -415,20 +397,20 @@ class BinOp(IRDLOperation):
 
     lhs = operand_def(ExoObject)
     rhs = operand_def(ExoObject)
-    result = result_def(ExoObject)
+    res = result_def(ExoObject)
 
-    operation = attr_def(SymbolRefAttr)
+    operation = attr_def(StringAttr)
 
     traits = traits_def(Pure())
 
     def __init__(
         self,
-        operation: str | SymbolRefAttr,
+        operation: str,
         lhs: SSAValue | Operation,
         rhs: SSAValue | Operation,
     ):
         if isinstance(operation, str):
-            operation = SymbolRefAttr(operation)
+            operation = StringAttr(operation)
 
         return super().__init__(
             operands=[lhs, rhs],

@@ -104,7 +104,7 @@ class IRGenerator:
         self.builder = parent_builder
 
         input_types = [self.get_type(arg.type) for arg in proc.args]
-        func_type = FunctionType.from_lists(input_types)
+        func_type = FunctionType.from_lists(input_types, [])
 
         # insert procedure into module
         self.builder.insert(ProcedureOp(proc.name, func_type, Region(block)))
@@ -133,7 +133,8 @@ class IRGenerator:
         elif isinstance(stmt, LoopIR.Free):
             self.generate_free_stmt(stmt)
         elif isinstance(stmt, LoopIR.Call):
-            self.generate_call_stmt(stmt)
+            # TODO: call stmts are not supported yet
+            pass
         elif isinstance(stmt, LoopIR.Window):
             self.generate_window_stmt(stmt)
         else:
@@ -204,16 +205,16 @@ class IRGenerator:
         self.builder.insert(ForOp(lo, hi, Region(loop_block)))
 
     def generate_alloc_stmt(self, alloc):
-        self.builder.insert(AllocOp(alloc.name, alloc.type, alloc.size))
+        self.builder.insert(AllocOp(alloc.name, alloc.type, alloc.mem))
 
     def generate_free_stmt(self, free):
-        self.builder.insert(FreeOp(free.name))
+        self.builder.insert(FreeOp(free.name, free.type, free.mem))
 
     def generate_call_stmt(self, call):
         # TODO: this might not work
-        self.generate_proc(call.proc)
+        self.generate_proc(call.f)
         args = [self.generate_expr(arg) for arg in call.args]
-        self.builder.insert(CallOp(call.proc.name, args))
+        self.builder.insert(CallOp(call.f.name, args))
 
     def generate_window_stmt(self, window):
         rhs = self.generate_expr(window.rhs)
