@@ -38,6 +38,7 @@ from xdsl.dialects.arith import (
     RemSIOp,
     IndexCastOp,
 )
+from xdsl.dialects.test import TestOp
 from xdsl.dialects.func import FuncOp, CallOp
 from xdsl.dialects.memref import LoadOp, StoreOp, AllocOp, DeallocOp
 from xdsl.dialects.scf import IfOp, ForOp, YieldOp
@@ -61,9 +62,6 @@ class IRGenerator:
 
     symbol_table: ScopedDict[str, SSAValue] | None = None
 
-    # used in testing
-    last_op: Operation | None = None
-
     seen_procs: set[str] = set()
 
     def __init__(self):
@@ -75,13 +73,6 @@ class IRGenerator:
         Return this IRGenerator with an empty symbol table.
         """
         self.symbol_table = ScopedDict()
-        return self
-
-    def with_declared_arg(self, sym: Sym, type):
-        """
-        Return this IRGenerator with a symbol declared in the symbol table.
-        """
-        self.declare_arg(sym, type)
         return self
 
     def declare_arg(self, sym: Sym, type, block, idx) -> BlockArgument:
@@ -101,21 +92,12 @@ class IRGenerator:
         self.symbol_table[sym.name()] = value
         return value
 
-    def with_declared_test_arg(self, sym: Sym, type):
-        """
-        Return this IRGenerator with a test value declared in the symbol table.
-        """
-        self.declare_test_arg(sym, type)
-        return self
-
-    def declare_test_arg(self, sym: Sym, type) -> TestSSAValue:
-        """
-        Declare a test value in the symbol table.
-        """
+    def _with_test_op(self, sym: Sym, type):
         assert self.symbol_table is not None
-        value = TestSSAValue(self.get_type(type))
-        self.symbol_table[sym.name()] = value
-        return value
+        op = TestOp(result_types=[self.get_type(type)])
+        self.builder.insert(op)
+        self.symbol_table[sym.name()] = op.res[0]
+        return self
 
     def generate(self, procs) -> ModuleOp:
         for proc in procs:
@@ -140,14 +122,9 @@ class IRGenerator:
 
         return self.symbol_table[sym.name()]
 
-    def insert(self, op):
-        """Insert an operation into the module and set it as the last operation."""
-        self.last_op = op
-        self.builder.insert(op)
-
     def cast_to_index(self, value: SSAValue) -> SSAValue:
         cast = IndexCastOp(value, IndexType())
-        self.insert(cast)
+        self.builder.insert(cast)
         return cast.result
 
     def generate_procedure(self, procedure):
@@ -178,7 +155,7 @@ class IRGenerator:
         func_type = FunctionType.from_lists(input_types, [])
 
         # insert procedure into module
-        self.insert(FuncOp(procedure.name, func_type, Region(block)))
+        self.builder.insert(FuncOp(procedure.name, func_type, Region(block)))
 
     def generate_stmt_list(self, stmts):
         """Generate a list of statements."""
@@ -215,7 +192,7 @@ class IRGenerator:
         idx = self.generate_expr_list(assign.idx)
         idx = [self.cast_to_index(i) for i in idx]
         rhs = self.generate_expr(assign.rhs)
-        self.insert(StoreOp(operands=[rhs, self.get_sym(assign.name), idx]))
+        self.builder.insert(StoreOp(operands=[rhs, self.get_sym(assign.name), idx]))
 
     def generate_reduce_stmt(self, reduce):
         idx = self.generate_expr_list(reduce.idx)
@@ -229,13 +206,13 @@ class IRGenerator:
         inc = AddfOp(load.res, rhs, result_type=rhs.type)
         store = StoreOp(operands=[inc.result, memref, idx])
 
-        self.insert(load)
-        self.insert(inc)
-        self.insert(store)
+        self.builder.insert(load)
+        self.builder.insert(inc)
+        self.builder.insert(store)
 
     def generate_write_config_stmt(self, write_config):
         # rhs = self.generate_expr(write_config.rhs)
-        # self.insert(WriteConfigOp(write_config.name, write_config.field, rhs))
+        # self.builder.insert(WriteConfigOp(write_config.name, write_config.field, rhs))
         raise NotImplementedError
 
     def generate_if_stmt(self, if_stmt):
@@ -247,23 +224,25 @@ class IRGenerator:
         true_block = Block()
         self.builder = Builder.at_end(true_block)
         self.generate_stmt_list(if_stmt.body)
-        self.insert(YieldOp())
+        self.builder.insert(YieldOp())
 
         # construct false_block
         false_block = Block()
         self.builder = Builder.at_end(false_block)
         self.generate_stmt_list(if_stmt.orelse)
-        self.insert(YieldOp())
+        self.builder.insert(YieldOp())
 
         # cleanup and construct
         self.builder = parent_builder
-        self.insert(IfOp(cond, [], Region(true_block), Region(false_block)))
+        self.builder.insert(IfOp(cond, [], Region(true_block), Region(false_block)))
 
     def generate_for_stmt(self, for_stmt):
         lo = self.generate_expr(for_stmt.lo)
         lo = self.cast_to_index(lo)
         hi = self.generate_expr(for_stmt.hi)
         hi = self.cast_to_index(hi)
+        step = ConstantOp(IntegerAttr(1, IndexType()))
+        self.builder.insert(step)
 
         parent_builder = self.builder
         parent_scope = self.symbol_table
@@ -281,32 +260,34 @@ class IRGenerator:
 
         # generate loop body
         self.generate_stmt_list(for_stmt.body)
-        self.insert(YieldOp())
+        self.builder.insert(YieldOp())
 
         # cleanup and construct
         self.symbol_table = parent_scope
         self.builder = parent_builder
 
-        self.insert(ForOp(lo, hi, ConstantOp(1, IndexType()), [], Region(loop_block)))
+        self.builder.insert(ForOp(lo, hi, step.result, [], Region(loop_block)))
 
     def generate_alloc_stmt(self, alloc):
         op = AllocOp([], [], result_type=self.get_type(alloc.type))
-        self.insert(op)
+        self.builder.insert(op)
         self.declare_value(alloc.name, op.results[0])
         return op.results[0]
 
     def generate_free_stmt(self, free):
-        self.insert(DeallocOp(operands=[self.get_sym(free.name)], result_types=[]))
+        self.builder.insert(
+            DeallocOp(operands=[self.get_sym(free.name)], result_types=[])
+        )
 
     def generate_call_stmt(self, call):
         # TODO: procedure generation should be top-level, then call should simply use a SymRefAttr to refer to the procedure
         self.generate_procedure(call.f)
         args = [self.generate_expr(arg) for arg in call.args]
-        self.insert(CallOp(call.f.name, args, []))
+        self.builder.insert(CallOp(call.f.name, args, []))
 
     # def generate_window_stmt(self, window):
     #     rhs = self.generate_expr(window.rhs)
-    #     self.insert(WindowStmtOp(self.symbol(window.name), rhs))
+    #     self.builder.insert(WindowStmtOp(self.symbol(window.name), rhs))
 
     def generate_expr_list(self, exprs) -> list[OpResult]:
         return [self.generate_expr(expr) for expr in exprs]
@@ -328,7 +309,7 @@ class IRGenerator:
             operands=[self.get_sym(read.name), idx],
             result_types=[self.get_type(read.type)],
         )
-        self.insert(read)
+        self.builder.insert(read)
         return read.res
 
     def generate_const_expr(self, const):
@@ -345,7 +326,7 @@ class IRGenerator:
             raise IRGeneratorError(f"Unknown type {type} passed to Const")
 
         const = ConstantOp(attr, self.get_type(const.type))
-        self.insert(const)
+        self.builder.insert(const)
         return const.result
 
     def generate_usub_expr(self, usub):
@@ -357,11 +338,11 @@ class IRGenerator:
         elif self.get_type(usub.type) in [i8, i16, i32]:
             zero = ConstantOp(IntegerAttr(0, self.get_type(usub.type)))
             usub = SubiOp(zero.result, expr, result_type=self.get_type(usub.type))
-            self.insert(zero)
+            self.builder.insert(zero)
         else:
             raise IRGeneratorError(f"Bad type {type} passed to USub")
 
-        self.insert(usub)
+        self.builder.insert(usub)
         return usub.result
 
     def generate_binop_expr(self, binop):
@@ -390,7 +371,7 @@ class IRGenerator:
         else:
             raise IRGeneratorError(f"Unknown binop {binop.op}")
 
-        self.insert(binop)
+        self.builder.insert(binop)
         return binop.result
 
     def generate_binop_expr_int(self, binop):
@@ -411,13 +392,13 @@ class IRGenerator:
         else:
             raise IRGeneratorError(f"Unknown binop {binop.op}")
 
-        self.insert(binop)
+        self.builder.insert(binop)
         return binop.result
 
     def generate_extern_expr(self, extern):
         args = self.generate_expr_list(extern.args)
         extern = CallOp(extern.f.name, args, [])
-        self.insert(extern)
+        self.builder.insert(extern)
         return extern.res
 
     def generate_window_expr(self, window):
