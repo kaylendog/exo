@@ -10,14 +10,17 @@ from xdsl.dialects.builtin import (
     Float16Type,
     Float32Type,
     Float64Type,
+    f16,
+    f32,
+    f64,
     i8,
     i16,
     i32,
-    IntegerType,
-    IndexType,
+    i1,
     MemRefType,
     FloatAttr,
     IntegerAttr,
+    IntAttr,
     BoolAttr,
 )
 from xdsl.dialects.arith import (
@@ -35,7 +38,7 @@ from xdsl.dialects.arith import (
 )
 from xdsl.dialects.func import FuncOp, CallOp
 from xdsl.dialects.memref import LoadOp, StoreOp, AllocOp, DeallocOp
-from xdsl.dialects.scf import IfOp, ForOp
+from xdsl.dialects.scf import IfOp, ForOp, YieldOp
 
 from ...core.prelude import Sym
 from ...core.LoopIR import LoopIR, T
@@ -44,8 +47,6 @@ from ...core.LoopIR import LoopIR, T
 MemRefTypeF16: TypeAlias = MemRefType[Float16Type]
 MemRefTypeF32: TypeAlias = MemRefType[Float32Type]
 MemRefTypeF64: TypeAlias = MemRefType[Float64Type]
-
-BoolType: TypeAlias = IntegerType(1)
 
 
 class IRGeneratorError(Exception):
@@ -81,12 +82,12 @@ class IRGenerator:
         self.declare_arg(sym, type)
         return self
 
-    def declare_arg(self, sym: Sym, type, block) -> BlockArgument:
+    def declare_arg(self, sym: Sym, type, block, idx) -> BlockArgument:
         """
         Declare a symbol in the symbol table.
         """
         assert self.symbol_table is not None
-        arg = BlockArgument(self.get_type(type), block)
+        arg = BlockArgument(self.get_type(type), block, idx)
         self.symbol_table[sym.name()] = arg
         return arg
 
@@ -128,7 +129,7 @@ class IRGenerator:
 
         return self.module
 
-    def symbol(self, sym: Sym) -> SSAValue:
+    def get_sym(self, sym: Sym) -> SSAValue:
         """Get the SSAValue for a symbol."""
         assert self.symbol_table is not None
 
@@ -141,6 +142,9 @@ class IRGenerator:
         """Insert an operation into the module and set it as the last operation."""
         self.last_op = op
         self.builder.insert(op)
+
+    def cast_to_index(self, value: SSAValue) -> SSAValue:
+        self.em
 
     def generate_procedure(self, procedure):
         if procedure.name in self.seen_procs:
@@ -156,8 +160,8 @@ class IRGenerator:
         self.builder = Builder.at_end(block)
 
         # add arguments to symbol table
-        for arg, value in zip(procedure.args, block.args):
-            self.declare_arg(arg.name, value, block)
+        for idx, arg, value in enumerate(zip(procedure.args, block.args)):
+            self.declare_arg(arg.name, value, block, idx)
 
         # generate function body
         self.generate_stmt_list(procedure.body)
@@ -174,7 +178,6 @@ class IRGenerator:
 
     def generate_stmt_list(self, stmts):
         """Generate a list of statements."""
-        assert self.symbol_table is not None
         for stmt in stmts:
             self.generate_stmt(stmt)
 
@@ -208,16 +211,16 @@ class IRGenerator:
         idx = self.generate_expr_list(assign.idx)
         rhs = self.generate_expr(assign.rhs)
 
-        self.insert(StoreOp(operands=[rhs, self.symbol(assign.name), idx]))
+        self.insert(StoreOp(operands=[self.get_sym(assign.name), rhs, idx]))
 
     def generate_reduce_stmt(self, reduce):
         idx = self.generate_expr_list(reduce.idx)
         rhs = self.generate_expr(reduce.rhs)
 
-        memref = self.symbol(reduce.name)
+        memref = self.get_sym(reduce.name)
 
         # load value from memory, add rhs, store back - could use AtomicRMWOp here?
-        load = LoadOp(operands=[memref, idx])
+        load = LoadOp(operands=[memref, idx], result_types=[self.get_type(memref)])
         inc = AddfOp(load.res, rhs)
         store = StoreOp(operands=[inc, memref, idx])
 
@@ -239,15 +242,17 @@ class IRGenerator:
         true_block = Block()
         self.builder = Builder.at_end(true_block)
         self.generate_stmt_list(if_stmt.body)
+        self.insert(YieldOp())
 
         # construct false_block
         false_block = Block()
         self.builder = Builder.at_end(false_block)
-        self.generate_stmt_list(if_stmt.or_else)
+        self.generate_stmt_list(if_stmt.orelse)
+        self.insert(YieldOp())
 
         # cleanup and construct
         self.builder = parent_builder
-        self.insert(IfOp(cond, Region(true_block), Region(false_block)))
+        self.insert(IfOp(cond, [], Region(true_block), Region(false_block)))
 
     def generate_for_stmt(self, for_stmt):
         lo = self.generate_expr(for_stmt.lo)
@@ -259,22 +264,23 @@ class IRGenerator:
         # construct loop block
         loop_block = Block(
             # TODO: this should be inferred from lo and hi
-            arg_types=[IndexType]
+            arg_types=[lo.type],
         )
         self.builder = Builder.at_end(loop_block)
         self.symbol_table = ScopedDict(parent_scope)
 
         # add loop variable to symbol table
-        self.declare_arg(for_stmt.iter, loop_block.args[0], loop_block)
+        self.declare_arg(for_stmt.iter, loop_block.args[0], loop_block, 0)
 
         # generate loop body
         self.generate_stmt_list(for_stmt.body)
+        self.insert(YieldOp())
 
         # cleanup and construct
         self.symbol_table = parent_scope
         self.builder = parent_builder
 
-        self.insert(ForOp(lo, hi, ConstantOp(1), Region(loop_block)))
+        self.insert(ForOp(lo, hi, ConstantOp(1, lo.type), [], Region(loop_block)))
 
     def generate_alloc_stmt(self, alloc):
         op = AllocOp([], [], result_type=self.get_type(alloc.type))
@@ -283,7 +289,7 @@ class IRGenerator:
         return op.results[0]
 
     def generate_free_stmt(self, free):
-        self.insert(DeallocOp(operands=[self.symbol(free.name)], result_types=[]))
+        self.insert(DeallocOp(operands=[self.get_sym(free.name)], result_types=[]))
 
     def generate_call_stmt(self, call):
         # TODO: procedure generation should be top-level, then call should simply use a SymRefAttr to refer to the procedure
@@ -311,7 +317,7 @@ class IRGenerator:
     def generate_read_expr(self, read):
         idx = self.generate_expr_list(read.idx)
         read = LoadOp(
-            operands=[self.symbol(read.name), idx],
+            operands=[self.get_sym(read.name), idx],
             result_types=[self.get_type(read.type)],
         )
         self.insert(read)
@@ -321,12 +327,12 @@ class IRGenerator:
         type = self.get_type(const.type)
 
         # construct attribute depending on type
-        if type in [Float16Type, Float32Type, Float64Type]:
+        if type in [f16, f32, f64]:
             attr = FloatAttr(const.val, type)
         elif type in [i8, i16, i32]:
             attr = IntegerAttr(const.val, type)
-        elif type == BoolType:
-            attr = BoolAttr(const.val)
+        elif type == i1:
+            attr = BoolAttr(const.val, i1)
         else:
             raise IRGeneratorError(f"Unknown type {type} passed to Const")
 
@@ -337,12 +343,12 @@ class IRGenerator:
     def generate_usub_expr(self, usub):
         expr = self.generate_expr(usub.arg)
         # float case
-        if self.get_type(usub.type) in [Float16Type, Float32Type, Float64Type]:
+        if self.get_type(usub.type) in [f16, f32, f64]:
             usub = NegfOp(expr)
         # integer case
         elif self.get_type(usub.type) in [i8, i16, i32]:
-            zero = ConstantOp(0, self.get_type(usub.type))
-            usub = SubfOp(zero.result, expr)
+            zero = ConstantOp(IntegerAttr(0, self.get_type(usub.type)))
+            usub = SubiOp(zero.result, expr, result_type=self.get_type(usub.type))
             self.insert(zero)
         else:
             raise IRGeneratorError(f"Bad type {type} passed to USub")
@@ -353,7 +359,7 @@ class IRGenerator:
     def generate_binop_expr(self, binop):
         type = self.get_type(binop.type)
 
-        if type in [Float16Type, Float32Type, Float64Type]:
+        if type in [f16, f32, f64]:
             return self.generate_binop_expr_float(binop)
         elif type in [i8, i16, i32]:
             return self.generate_binop_expr_int(binop)
@@ -363,6 +369,7 @@ class IRGenerator:
     def generate_binop_expr_float(self, binop):
         lhs = self.generate_expr(binop.lhs)
         rhs = self.generate_expr(binop.rhs)
+        type = self.get_type(binop.type)
 
         if binop.op == "+":
             binop = AddfOp(lhs, rhs, result_type=type)
@@ -381,6 +388,7 @@ class IRGenerator:
     def generate_binop_expr_int(self, binop):
         lhs = self.generate_expr(binop.lhs)
         rhs = self.generate_expr(binop.rhs)
+        type = self.get_type(binop.type)
 
         if binop.op == "+":
             binop = AddiOp(lhs, rhs, result_type=type)
@@ -414,12 +422,16 @@ class IRGenerator:
         pass
 
     def get_type(self, t):
+        # mlir
+        if isinstance(t, SSAValue):
+            return t.type
+        # exo
         if isinstance(t, T.F16):
-            return Float16Type
+            return f16
         elif isinstance(t, T.F32) or isinstance(t, T.Num):
-            return Float32Type
+            return f32
         elif isinstance(t, T.F64):
-            return Float64Type
+            return f64
         elif isinstance(t, T.INT8) or isinstance(t, T.UINT8):
             return i8
         elif isinstance(t, T.UINT16):
@@ -427,24 +439,27 @@ class IRGenerator:
         elif isinstance(t, T.INT32) or isinstance(t, T.Int) or isinstance(t, T.Index):
             return i32
         elif isinstance(t, T.Bool):
-            return BoolType
+            return i1
         elif isinstance(t, T.Tensor):
             inner = self.get_type(t.type)
-            if inner == Float16Type:
-                return MemRefTypeF16
-            elif inner == Float32Type:
-                return MemRefTypeF32
-            elif inner == Float64Type:
-                return MemRefTypeF64
+            if inner == f16:
+                return MemRefTypeF16(f16, self.get_shape(t))
+            elif inner == f32:
+                return MemRefTypeF32(f32, self.get_shape(t))
+            elif inner == f64:
+                return MemRefTypeF64(f64, self.get_shape(t))
             else:
                 raise IRGeneratorError(f"Unknown tensor type {t}")
         else:
             raise IRGeneratorError(f"Unknown type {t}")
 
-    def get_shape(self, type):
-        if self.get_type(type) not in [MemRefTypeF16, MemRefTypeF32, MemRefTypeF64]:
-            raise IRGeneratorError(
-                f"Cannot get size: unknown tensor type {type.__str__()}"
-            )
+    def get_shape(self, type) -> list[IntegerAttr]:
+        assert isinstance(type, T.Tensor)
 
-        return self.hi
+        def attr_from_expr(expr):
+            if isinstance(expr, LoopIR.Const):
+                return IntAttr(expr.val)
+            else:
+                raise IRGeneratorError(f"Invalid shape argument {expr}")
+
+        return [attr_from_expr(expr) for expr in type.shape()]

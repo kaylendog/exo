@@ -13,7 +13,13 @@ def test_emit_assign_op():
     # x[0] = 1
     ir = LoopIR.Assign(
         Sym("x"),
-        T.int,
+        T.Tensor(
+            [
+                LoopIR.Const(32, T.index, srcinfo),
+            ],
+            False,
+            T.f32,
+        ),
         [LoopIR.Const(0, T.index, srcinfo)],
         LoopIR.Const(0.0, T.f32, srcinfo),
         srcinfo,
@@ -26,7 +32,7 @@ def test_emit_assign_op():
             Sym("x"),
             T.Tensor(
                 [
-                    LoopIR.Const(10, T.index, srcinfo),
+                    LoopIR.Const(32, T.index, srcinfo),
                 ],
                 False,
                 T.f32,
@@ -45,13 +51,32 @@ def test_emit_reduce_op():
     # x[0] += 1
     ir = LoopIR.Reduce(
         Sym("x"),
-        T.int,
+        T.Tensor(
+            [
+                LoopIR.Const(32, T.index, srcinfo),
+            ],
+            False,
+            T.f32,
+        ),
         [LoopIR.Const(0, T.int, srcinfo)],
-        LoopIR.Const(1, T.int, srcinfo),
+        LoopIR.Const(0.0, T.f32, srcinfo),
         srcinfo,
     )
 
-    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
+    gen = (
+        IRGenerator()
+        .with_empty_scope()
+        .with_declared_test_arg(
+            Sym("x"),
+            T.Tensor(
+                [
+                    LoopIR.Const(32, T.index, srcinfo),
+                ],
+                False,
+                T.f32,
+            ),
+        )
+    )
     gen.generate_reduce_stmt(ir)
 
     gen.last_op.verify()
@@ -103,9 +128,20 @@ def test_emit_for_op():
 def test_emit_alloc_op():
     srcinfo = SrcInfo("test_mlir.py", 0)
 
-    ir = LoopIR.Alloc(Sym("x"), T.int, DRAM, srcinfo)
+    ir = LoopIR.Alloc(
+        Sym("x"),
+        T.Tensor(
+            [
+                LoopIR.Const(32, T.index, srcinfo),
+            ],
+            False,
+            T.f32,
+        ),
+        DRAM,
+        srcinfo,
+    )
 
-    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
+    gen = IRGenerator().with_empty_scope()
     gen.generate_alloc_stmt(ir)
 
     gen.last_op.verify()
@@ -148,9 +184,22 @@ def test_emit_free_op():
 def test_read_op():
     srcinfo = SrcInfo("test_mlir.py", 0)
 
-    ir = LoopIR.Read(Sym("x"), [LoopIR.Const(0, T.index, srcinfo)], T.int, srcinfo)
+    ir = LoopIR.Read(Sym("x"), [LoopIR.Const(0, T.index, srcinfo)], T.f32, srcinfo)
 
-    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
+    gen = (
+        IRGenerator()
+        .with_empty_scope()
+        .with_declared_test_arg(
+            Sym("x"),
+            T.Tensor(
+                [
+                    LoopIR.Const(32, T.index, srcinfo),
+                ],
+                False,
+                T.f32,
+            ),
+        )
+    )
     gen.generate_read_expr(ir)
 
     gen.last_op.verify()
