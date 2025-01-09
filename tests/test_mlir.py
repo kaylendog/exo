@@ -20,9 +20,10 @@ def test_emit_assign_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_assign_stmt(ir)
-    print(gen.builder.insertion_point.block)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_reduce_op():
@@ -39,8 +40,10 @@ def test_emit_reduce_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_reduce_stmt(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_write_config_op():
@@ -59,8 +62,10 @@ def test_emit_if_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_if_stmt(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_for_op():
@@ -79,8 +84,10 @@ def test_emit_for_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_for_stmt(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_alloc_op():
@@ -90,8 +97,10 @@ def test_emit_alloc_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_alloc_stmt(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_free_op():
@@ -101,8 +110,10 @@ def test_emit_free_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_free_stmt(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_call_op():
@@ -116,8 +127,10 @@ def test_emit_call_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_call_stmt(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_window_stmt_op():
@@ -132,8 +145,10 @@ def test_read_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_read_expr(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_const_op_int():
@@ -143,7 +158,6 @@ def test_const_op_int():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_const_expr(ir)
 
 
@@ -154,8 +168,10 @@ def test_const_op_float():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_const_expr(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_const_op_bool():
@@ -165,8 +181,10 @@ def test_const_op_bool():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_const_expr(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_usub_op():
@@ -176,8 +194,10 @@ def test_emit_usub_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_usub_expr(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_bin_op():
@@ -193,8 +213,10 @@ def test_emit_bin_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_binop_expr(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_extern_op():
@@ -204,8 +226,10 @@ def test_emit_extern_op():
 
     gen = IRGenerator()
     gen.symbol_table = ScopedDict()
-
     gen.generate_extern_expr(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_emit_window_expr_op():

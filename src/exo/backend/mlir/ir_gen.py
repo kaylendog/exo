@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from xdsl.builder import Builder
 from xdsl.dialects.builtin import ModuleOp, FunctionType
-from xdsl.ir import Block, SSAValue, Region
+from xdsl.ir import Block, SSAValue, Region, Operation
 from xdsl.utils.scoped_dict import ScopedDict
 
 from .dialect import (
@@ -58,6 +58,9 @@ class IRGenerator:
 
     symbol_table: ScopedDict[str, SSAValue] | None = None
 
+    # used in testing
+    last_op: Operation | None = None
+
     seen_procs: set[str] = set()
 
     def __init__(self):
@@ -84,6 +87,10 @@ class IRGenerator:
             raise
 
         return self.module
+
+    def insert(self, op):
+        self.last_op = op
+        self.builder.insert(op)
 
     def generate_proc(self, proc):
         # prevent infinite generation of procedures - shouldn't happen, but LoopIR embeds entire procedures in its AST
@@ -115,7 +122,7 @@ class IRGenerator:
         func_type = FunctionType.from_lists(input_types, [])
 
         # insert procedure into module
-        self.builder.insert(ProcedureOp(proc.name, func_type, Region(block)))
+        self.insert(ProcedureOp(proc.name, func_type, Region(block)))
 
     def generate_stmt_list(self, stmts):
         assert self.symbol_table is not None
@@ -152,17 +159,17 @@ class IRGenerator:
         idx = self.generate_expr_list(assign.idx)
         rhs = self.generate_expr(assign.rhs)
 
-        self.builder.insert(AssignOp(assign.name, assign.type, idx, rhs))
+        self.insert(AssignOp(assign.name, assign.type, idx, rhs))
 
     def generate_reduce_stmt(self, reduce):
         idx = self.generate_expr_list(reduce.idx)
         rhs = self.generate_expr(reduce.rhs)
 
-        self.builder.insert(ReduceOp(reduce.name, reduce.type, idx, rhs))
+        self.insert(ReduceOp(reduce.name, reduce.type, idx, rhs))
 
     def generate_write_config_stmt(self, write_config):
         rhs = self.generate_expr(write_config.rhs)
-        self.builder.insert(WriteConfigOp(write_config.name, write_config.field, rhs))
+        self.insert(WriteConfigOp(write_config.name, write_config.field, rhs))
 
     def generate_if_stmt(self, if_stmt):
         cond = self.generate_expr(if_stmt.cond)
@@ -181,7 +188,7 @@ class IRGenerator:
 
         # cleanup and construct
         self.builder = parent_builder
-        self.builder.insert(IfOp(cond, Region(true_block), Region(false_block)))
+        self.insert(IfOp(cond, Region(true_block), Region(false_block)))
 
     def generate_for_stmt(self, for_stmt):
         lo = self.generate_expr(for_stmt.lo)
@@ -208,23 +215,23 @@ class IRGenerator:
         self.symbol_table = parent_scope
         self.builder = parent_builder
 
-        self.builder.insert(ForOp(lo, hi, Region(loop_block)))
+        self.insert(ForOp(lo, hi, Region(loop_block)))
 
     def generate_alloc_stmt(self, alloc):
-        self.builder.insert(AllocOp(alloc.name, alloc.type, alloc.mem))
+        self.insert(AllocOp(alloc.name, alloc.type, alloc.mem))
 
     def generate_free_stmt(self, free):
-        self.builder.insert(FreeOp(free.name, free.type, free.mem))
+        self.insert(FreeOp(free.name, free.type, free.mem))
 
     def generate_call_stmt(self, call):
         # TODO: procedure generation should be top-level, then call should simply use a SymRefAttr to refer to the procedure
         self.generate_proc(call.f)
         args = [self.generate_expr(arg) for arg in call.args]
-        self.builder.insert(CallOp(call.f.name, args))
+        self.insert(CallOp(call.f.name, args))
 
     def generate_window_stmt(self, window):
         rhs = self.generate_expr(window.rhs)
-        self.builder.insert(WindowStmtOp(window.name, rhs))
+        self.insert(WindowStmtOp(window.name, rhs))
 
     def generate_expr_list(self, exprs):
         assert self.symbol_table is not None
@@ -255,30 +262,30 @@ class IRGenerator:
     def generate_read_expr(self, read):
         idx = self.generate_expr_list(read.idx)
         read = ReadOp(read.name, idx)
-        self.builder.insert(read)
+        self.insert(read)
         return read.res
 
     def generate_const_expr(self, const):
         const = ConstantOp(const.val)
-        self.builder.insert(const)
+        self.insert(const)
         return const.res
 
     def generate_usub_expr(self, usub):
         usub = USubOp(self.generate_expr(usub.arg))
-        self.builder.insert(usub)
+        self.insert(usub)
         return usub.res
 
     def generate_binop_expr(self, binop):
         lhs = self.generate_expr(binop.lhs)
         rhs = self.generate_expr(binop.rhs)
         binop = BinOp(binop.op, lhs, rhs)
-        self.builder.insert(binop)
+        self.insert(binop)
         return binop.res
 
     def generate_extern_expr(self, extern):
         args = self.generate_expr_list(extern.args)
         extern = ExternOp(extern.f.name(), args)
-        self.builder.insert(extern)
+        self.insert(extern)
         return extern.res
 
     def generate_window_expr(self, window):
