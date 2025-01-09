@@ -15,7 +15,10 @@ from xdsl.dialects.builtin import (
     i32,
     IntegerType,
     IndexType,
-    TensorType,
+    MemRefType,
+    FloatAttr,
+    IntegerAttr,
+    BoolAttr,
 )
 from xdsl.dialects.arith import (
     ConstantOp,
@@ -38,9 +41,11 @@ from ...core.prelude import Sym
 from ...core.LoopIR import LoopIR, T
 
 
-TensorTypeF16: TypeAlias = TensorType[Float16Type]
-TensorTypeF32: TypeAlias = TensorType[Float32Type]
-TensorTypeF64: TypeAlias = TensorType[Float64Type]
+MemRefTypeF16: TypeAlias = MemRefType[Float16Type]
+MemRefTypeF32: TypeAlias = MemRefType[Float32Type]
+MemRefTypeF64: TypeAlias = MemRefType[Float64Type]
+
+BoolType: TypeAlias = IntegerType(1)
 
 
 class IRGeneratorError(Exception):
@@ -124,6 +129,7 @@ class IRGenerator:
         return self.module
 
     def symbol(self, sym: Sym) -> SSAValue:
+        """Get the SSAValue for a symbol."""
         assert self.symbol_table is not None
 
         if sym.name() not in self.symbol_table:
@@ -132,6 +138,7 @@ class IRGenerator:
         return self.symbol_table[sym.name()]
 
     def insert(self, op):
+        """Insert an operation into the module and set it as the last operation."""
         self.last_op = op
         self.builder.insert(op)
 
@@ -166,6 +173,7 @@ class IRGenerator:
         self.insert(FuncOp(procedure.name, func_type, Region(block)))
 
     def generate_stmt_list(self, stmts):
+        """Generate a list of statements."""
         assert self.symbol_table is not None
         for stmt in stmts:
             self.generate_stmt(stmt)
@@ -310,14 +318,35 @@ class IRGenerator:
         return read.res
 
     def generate_const_expr(self, const):
-        const = ConstantOp.from_int_and_width(const.val, self.get_type(const.type))
+        type = self.get_type(const.type)
+
+        # construct attribute depending on type
+        if type in [Float16Type, Float32Type, Float64Type]:
+            attr = FloatAttr(const.val, type)
+        elif type in [i8, i16, i32]:
+            attr = IntegerAttr(const.val, type)
+        elif type == BoolType:
+            attr = BoolAttr(const.val)
+        else:
+            raise IRGeneratorError(f"Unknown type {type} passed to Const")
+
+        const = ConstantOp(attr, self.get_type(const.type))
         self.insert(const)
         return const.result
 
     def generate_usub_expr(self, usub):
-        zero = ConstantOp(0)
-        usub = SubfOp(zero.result, self.generate_expr(usub.arg))
-        self.insert(zero)
+        expr = self.generate_expr(usub.arg)
+        # float case
+        if self.get_type(usub.type) in [Float16Type, Float32Type, Float64Type]:
+            usub = NegfOp(expr)
+        # integer case
+        elif self.get_type(usub.type) in [i8, i16, i32]:
+            zero = ConstantOp(0, self.get_type(usub.type))
+            usub = SubfOp(zero.result, expr)
+            self.insert(zero)
+        else:
+            raise IRGeneratorError(f"Bad type {type} passed to USub")
+
         self.insert(usub)
         return usub.result
 
@@ -395,25 +424,27 @@ class IRGenerator:
             return i8
         elif isinstance(t, T.UINT16):
             return i16
-        elif isinstance(t, T.INT32) or isinstance(t, T.Int):
+        elif isinstance(t, T.INT32) or isinstance(t, T.Int) or isinstance(t, T.Index):
             return i32
         elif isinstance(t, T.Bool):
-            return IntegerType(1)
-        elif isinstance(t, T.Index):
-            return IndexType
+            return BoolType
         elif isinstance(t, T.Tensor):
             inner = self.get_type(t.type)
-            if isinstance(inner, Float16Type):
-                return TensorTypeF16
-            elif isinstance(inner, Float32Type):
-                return TensorTypeF32
-            elif isinstance(inner, Float64Type):
-                return TensorTypeF64
+            if inner == Float16Type:
+                return MemRefTypeF16
+            elif inner == Float32Type:
+                return MemRefTypeF32
+            elif inner == Float64Type:
+                return MemRefTypeF64
             else:
                 raise IRGeneratorError(f"Unknown tensor type {t}")
         else:
             raise IRGeneratorError(f"Unknown type {t}")
 
     def get_shape(self, type):
-        if self.get_type(type) not in [TensorTypeF16, TensorTypeF32, TensorTypeF64]:
-            raise IRGeneratorError(f"Unknown tensor type {type}")
+        if self.get_type(type) not in [MemRefTypeF16, MemRefTypeF32, MemRefTypeF64]:
+            raise IRGeneratorError(
+                f"Cannot get size: unknown tensor type {type.__str__()}"
+            )
+
+        return self.hi

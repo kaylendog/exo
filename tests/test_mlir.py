@@ -14,12 +14,25 @@ def test_emit_assign_op():
     ir = LoopIR.Assign(
         Sym("x"),
         T.int,
-        [LoopIR.Const(0, T.int, srcinfo)],
-        LoopIR.Const(1, T.int, srcinfo),
+        [LoopIR.Const(0, T.index, srcinfo)],
+        LoopIR.Const(0.0, T.f32, srcinfo),
         srcinfo,
     )
 
-    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
+    gen = (
+        IRGenerator()
+        .with_empty_scope()
+        .with_declared_test_arg(
+            Sym("x"),
+            T.Tensor(
+                [
+                    LoopIR.Const(10, T.index, srcinfo),
+                ],
+                False,
+                T.f32,
+            ),
+        )
+    )
     gen.generate_assign_stmt(ir)
 
     gen.last_op.verify()
