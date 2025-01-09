@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from xdsl.builder import Builder
 from xdsl.dialects.builtin import ModuleOp, FunctionType
-from xdsl.ir import Block, SSAValue, Region, Operation
+from xdsl.ir import Block, SSAValue, Region, Operation, BlockArgument
+from xdsl.utils.test_value import TestSSAValue
 from xdsl.utils.scoped_dict import ScopedDict
+
+from ...core.prelude import Sym
+from ...core.LoopIR import LoopIR, T
 
 from .dialect import (
     ConstantOp,
@@ -45,8 +47,6 @@ from .dialect import (
     ExoMem,
 )
 
-from ...core.LoopIR import LoopIR
-
 
 class IRGeneratorError(Exception):
     pass
@@ -67,12 +67,41 @@ class IRGenerator:
         self.module = ModuleOp([])
         self.builder = Builder.at_end(self.module.body.blocks[0])
 
-    def declare(self, var: str, value: SSAValue) -> bool:
+    def with_empty_scope(self):
+        """
+        Return this IRGenerator with an empty symbol table.
+        """
+        self.symbol_table = ScopedDict()
+        return self
+
+    def with_declared_arg(self, sym: Sym, type):
+        """
+        Return this IRGenerator with a symbol declared in the symbol table.
+        """
+        self.declare_arg(sym, type)
+        return self
+
+    def declare_arg(self, sym: Sym, type) -> BlockArgument:
+        """
+        Declare a symbol in the symbol table.
+        """
+        raise NotImplementedError
+
+    def with_declared_test_arg(self, sym: Sym, type):
+        """
+        Return this IRGenerator with a test value declared in the symbol table.
+        """
+        self.declare_test_arg(sym, type)
+        return self
+
+    def declare_test_arg(self, sym: Sym, type) -> TestSSAValue:
+        """
+        Declare a test value in the symbol table.
+        """
         assert self.symbol_table is not None
-        if var in self.symbol_table:
-            return False
-        self.symbol_table[var] = value
-        return True
+        value = TestSSAValue(self.get_type(type))
+        self.symbol_table[sym.name()] = value
+        return value
 
     def generate(self, procs) -> ModuleOp:
         for proc in procs:
@@ -87,6 +116,14 @@ class IRGenerator:
             raise
 
         return self.module
+
+    def symbol(self, sym: Sym) -> SSAValue:
+        assert self.symbol_table is not None
+
+        if sym.name() not in self.symbol_table:
+            raise IRGeneratorError(f"Unknown symbol {sym.name()}")
+
+        return self.symbol_table[sym.name()]
 
     def insert(self, op):
         self.last_op = op
@@ -109,7 +146,7 @@ class IRGenerator:
 
         # add arguments to symbol table
         for arg, value in zip(proc.args, block.args):
-            self.declare(arg.name, value)
+            self.declare_arg(arg.name, value)
 
         # generate function body
         self.generate_stmt_list(proc.body)
@@ -159,17 +196,18 @@ class IRGenerator:
         idx = self.generate_expr_list(assign.idx)
         rhs = self.generate_expr(assign.rhs)
 
-        self.insert(AssignOp(assign.name, assign.type, idx, rhs))
+        self.insert(AssignOp(self.symbol(assign.name), assign.type, idx, rhs))
 
     def generate_reduce_stmt(self, reduce):
         idx = self.generate_expr_list(reduce.idx)
         rhs = self.generate_expr(reduce.rhs)
 
-        self.insert(ReduceOp(reduce.name, reduce.type, idx, rhs))
+        self.insert(ReduceOp(self.symbol(reduce.name), reduce.type, idx, rhs))
 
     def generate_write_config_stmt(self, write_config):
-        rhs = self.generate_expr(write_config.rhs)
-        self.insert(WriteConfigOp(write_config.name, write_config.field, rhs))
+        # rhs = self.generate_expr(write_config.rhs)
+        # self.insert(WriteConfigOp(write_config.name, write_config.field, rhs))
+        raise NotImplementedError
 
     def generate_if_stmt(self, if_stmt):
         cond = self.generate_expr(if_stmt.cond)
@@ -206,7 +244,7 @@ class IRGenerator:
         self.symbol_table = ScopedDict(parent_scope)
 
         # add loop variable to symbol table
-        self.declare(for_stmt.iter, loop_block.args[0])
+        self.declare_arg(for_stmt.iter, loop_block.args[0])
 
         # generate loop body
         self.generate_stmt_list(for_stmt.body)
@@ -218,10 +256,10 @@ class IRGenerator:
         self.insert(ForOp(lo, hi, Region(loop_block)))
 
     def generate_alloc_stmt(self, alloc):
-        self.insert(AllocOp(alloc.name, alloc.type, alloc.mem))
+        self.insert(AllocOp(self.symbol(alloc.name), alloc.type, alloc.mem))
 
     def generate_free_stmt(self, free):
-        self.insert(FreeOp(free.name, free.type, free.mem))
+        self.insert(FreeOp(self.symbol(free.name), free.type, free.mem))
 
     def generate_call_stmt(self, call):
         # TODO: procedure generation should be top-level, then call should simply use a SymRefAttr to refer to the procedure
@@ -231,7 +269,7 @@ class IRGenerator:
 
     def generate_window_stmt(self, window):
         rhs = self.generate_expr(window.rhs)
-        self.insert(WindowStmtOp(window.name, rhs))
+        self.insert(WindowStmtOp(self.symbol(window.name), rhs))
 
     def generate_expr_list(self, exprs):
         assert self.symbol_table is not None
@@ -261,7 +299,7 @@ class IRGenerator:
 
     def generate_read_expr(self, read):
         idx = self.generate_expr_list(read.idx)
-        read = ReadOp(read.name, idx)
+        read = ReadOp(self.symbol(read.name), idx)
         self.insert(read)
         return read.res
 
@@ -298,35 +336,35 @@ class IRGenerator:
         pass
 
     def get_type(self, t):
-        if isinstance(t, LoopIR.Num):
+        if isinstance(t, T.Num):
             return ExoNum
-        elif isinstance(t, LoopIR.F16):
+        elif isinstance(t, T.F16):
             return ExoF16
-        elif isinstance(t, LoopIR.F32):
+        elif isinstance(t, T.F32):
             return ExoF32
-        elif isinstance(t, LoopIR.F64):
+        elif isinstance(t, T.F64):
             return ExoF64
-        elif isinstance(t, LoopIR.INT8):
+        elif isinstance(t, T.INT8):
             return ExoINT8
-        elif isinstance(t, LoopIR.UINT8):
+        elif isinstance(t, T.UINT8):
             return ExoUINT8
-        elif isinstance(t, LoopIR.UINT16):
+        elif isinstance(t, T.UINT16):
             return ExoUINT16
-        elif isinstance(t, LoopIR.INT32):
+        elif isinstance(t, T.INT32):
             return ExoINT32
-        elif isinstance(t, LoopIR.Bool):
+        elif isinstance(t, T.Bool):
             return ExoBool
-        elif isinstance(t, LoopIR.Int):
+        elif isinstance(t, T.Int):
             return ExoInt
-        elif isinstance(t, LoopIR.Index):
+        elif isinstance(t, T.Index):
             return ExoIndex
-        elif isinstance(t, LoopIR.Size):
+        elif isinstance(t, T.Size):
             return ExoSize
-        elif isinstance(t, LoopIR.Stride):
+        elif isinstance(t, T.Stride):
             return ExoStride
-        elif isinstance(t, LoopIR.Error):
+        elif isinstance(t, T.Error):
             return ExoError
-        elif isinstance(t, LoopIR.Tensor):
+        elif isinstance(t, T.Tensor):
             return ExoTensor
         else:
             # TODO: add more types, but stupid exam regulations dont let me use GPT to make this quick :(

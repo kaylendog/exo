@@ -3,6 +3,7 @@ from exo.core.LoopIR import LoopIR, T
 from exo.core.memory import DRAM
 from exo.core.prelude import SrcInfo, Sym
 from exo.core.extern import Extern
+
 from xdsl.utils.scoped_dict import ScopedDict
 
 
@@ -18,8 +19,7 @@ def test_emit_assign_op():
         srcinfo,
     )
 
-    gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
+    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
     gen.generate_assign_stmt(ir)
 
     gen.last_op.verify()
@@ -38,8 +38,7 @@ def test_emit_reduce_op():
         srcinfo,
     )
 
-    gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
+    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
     gen.generate_reduce_stmt(ir)
 
     gen.last_op.verify()
@@ -61,7 +60,6 @@ def test_emit_if_op():
     ir = LoopIR.If(LoopIR.Const(True, T.bool, srcinfo), [], [], srcinfo)
 
     gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
     gen.generate_if_stmt(ir)
 
     gen.last_op.verify()
@@ -82,8 +80,7 @@ def test_emit_for_op():
         srcinfo,
     )
 
-    gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
+    gen = IRGenerator().with_empty_scope()
     gen.generate_for_stmt(ir)
 
     gen.last_op.verify()
@@ -95,8 +92,7 @@ def test_emit_alloc_op():
 
     ir = LoopIR.Alloc(Sym("x"), T.int, DRAM, srcinfo)
 
-    gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
+    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
     gen.generate_alloc_stmt(ir)
 
     gen.last_op.verify()
@@ -108,8 +104,7 @@ def test_emit_free_op():
 
     ir = LoopIR.Free(Sym("x"), T.int, DRAM, srcinfo)
 
-    gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
+    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
     gen.generate_free_stmt(ir)
 
     gen.last_op.verify()
@@ -125,8 +120,7 @@ def test_emit_call_op():
         srcinfo,
     )
 
-    gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
+    gen = IRGenerator().with_empty_scope()
     gen.generate_call_stmt(ir)
 
     gen.last_op.verify()
@@ -143,8 +137,7 @@ def test_read_op():
 
     ir = LoopIR.Read(Sym("x"), [], T.int, srcinfo)
 
-    gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
+    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
     gen.generate_read_expr(ir)
 
     gen.last_op.verify()
@@ -157,8 +150,10 @@ def test_const_op_int():
     ir = LoopIR.Const(0, T.int, srcinfo)
 
     gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
     gen.generate_const_expr(ir)
+
+    gen.last_op.verify()
+    print(gen.last_op)
 
 
 def test_const_op_float():
@@ -193,7 +188,6 @@ def test_emit_usub_op():
     ir = LoopIR.USub(LoopIR.Const(0, T.int, srcinfo), T.int, srcinfo)
 
     gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
     gen.generate_usub_expr(ir)
 
     gen.last_op.verify()
@@ -212,7 +206,6 @@ def test_emit_bin_op():
     )
 
     gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
     gen.generate_binop_expr(ir)
 
     gen.last_op.verify()
@@ -225,7 +218,6 @@ def test_emit_extern_op():
     ir = LoopIR.Extern(Extern("example"), [], T.int, srcinfo)
 
     gen = IRGenerator()
-    gen.symbol_table = ScopedDict()
     gen.generate_extern_expr(ir)
 
     gen.last_op.verify()
