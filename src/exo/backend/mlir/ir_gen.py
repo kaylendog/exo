@@ -5,12 +5,21 @@ from xdsl.dialects.builtin import ModuleOp, FunctionType
 from xdsl.ir import Block, SSAValue, Region, Operation, BlockArgument
 from xdsl.utils.test_value import TestSSAValue
 from xdsl.utils.scoped_dict import ScopedDict
+from xdsl.dialects.arith import ConstantOp
+from xdsl.dialects.builtin import (
+    Float16Type,
+    Float32Type,
+    Float64Type,
+    I8,
+    I32,
+    IntegerType,
+    IndexType,
+)
 
 from ...core.prelude import Sym
 from ...core.LoopIR import LoopIR, T
 
 from .dialect import (
-    ConstantOp,
     AllocOp,
     AssignOp,
     BinOp,
@@ -21,30 +30,16 @@ from .dialect import (
     FreeOp,
     ProcedureOp,
     ReadOp,
-    ReadConfigOp,
     ReduceOp,
     USubOp,
-    WindowExprOp,
-    WindowStmtOp,
-    WriteConfigOp,
-    ExoF16,
-    ExoF32,
-    ExoF64,
-    ExoINT8,
-    ExoUINT8,
-    ExoUINT16,
-    ExoINT32,
-    ExoBool,
-    ExoIndex,
-    ExoSize,
-    ExoStride,
-    ExoError,
-    ExoTensor,
-    ExoInt,
-    ExoNum,
-    ExoObject,
-    ExoType,
-    ExoMem,
+    U8,
+    U16,
+    TensorTypeF16,
+    TensorTypeF32,
+    TensorTypeF64,
+    TensorTypeI8,
+    TensorTypeU16,
+    TensorTypeU8,
 )
 
 
@@ -238,7 +233,7 @@ class IRGenerator:
         # construct loop block
         loop_block = Block(
             # TODO: this should be inferred from lo and hi
-            arg_types=[ExoIndex]
+            arg_types=[IndexType]
         )
         self.builder = Builder.at_end(loop_block)
         self.symbol_table = ScopedDict(parent_scope)
@@ -256,10 +251,16 @@ class IRGenerator:
         self.insert(ForOp(lo, hi, Region(loop_block)))
 
     def generate_alloc_stmt(self, alloc):
-        self.insert(AllocOp(self.symbol(alloc.name), alloc.type, alloc.mem))
+        self.insert(
+            AllocOp(
+                self.symbol(alloc.name), self.get_type(alloc.type), alloc.mem.name()
+            )
+        )
 
     def generate_free_stmt(self, free):
-        self.insert(FreeOp(self.symbol(free.name), free.type, free.mem))
+        self.insert(
+            FreeOp(self.symbol(free.name), self.get_type(free.type), free.mem.name())
+        )
 
     def generate_call_stmt(self, call):
         # TODO: procedure generation should be top-level, then call should simply use a SymRefAttr to refer to the procedure
@@ -267,13 +268,11 @@ class IRGenerator:
         args = [self.generate_expr(arg) for arg in call.args]
         self.insert(CallOp(call.f.name, args))
 
-    def generate_window_stmt(self, window):
-        rhs = self.generate_expr(window.rhs)
-        self.insert(WindowStmtOp(self.symbol(window.name), rhs))
+    # def generate_window_stmt(self, window):
+    #     rhs = self.generate_expr(window.rhs)
+    #     self.insert(WindowStmtOp(self.symbol(window.name), rhs))
 
     def generate_expr_list(self, exprs):
-        assert self.symbol_table is not None
-
         for expr in exprs:
             self.generate_expr(expr)
 
@@ -304,9 +303,9 @@ class IRGenerator:
         return read.res
 
     def generate_const_expr(self, const):
-        const = ConstantOp(const.val)
+        const = ConstantOp.from_int_and_width(const.val, self.get_type(const.type))
         self.insert(const)
-        return const.res
+        return const.result
 
     def generate_usub_expr(self, usub):
         usub = USubOp(self.generate_expr(usub.arg))
@@ -336,36 +335,33 @@ class IRGenerator:
         pass
 
     def get_type(self, t):
-        if isinstance(t, T.Num):
-            return ExoNum
-        elif isinstance(t, T.F16):
-            return ExoF16
-        elif isinstance(t, T.F32):
-            return ExoF32
+        if isinstance(t, T.F16):
+            return Float16Type
+        elif isinstance(t, T.F32) or isinstance(t, T.Num):
+            return Float32Type
         elif isinstance(t, T.F64):
-            return ExoF64
+            return Float64Type
         elif isinstance(t, T.INT8):
-            return ExoINT8
+            return I8
         elif isinstance(t, T.UINT8):
-            return ExoUINT8
+            return U8
         elif isinstance(t, T.UINT16):
-            return ExoUINT16
-        elif isinstance(t, T.INT32):
-            return ExoINT32
+            return U16
+        elif isinstance(t, T.INT32) or isinstance(t, T.Int):
+            return I32
         elif isinstance(t, T.Bool):
-            return ExoBool
-        elif isinstance(t, T.Int):
-            return ExoInt
+            return IntegerType(1)
         elif isinstance(t, T.Index):
-            return ExoIndex
-        elif isinstance(t, T.Size):
-            return ExoSize
-        elif isinstance(t, T.Stride):
-            return ExoStride
-        elif isinstance(t, T.Error):
-            return ExoError
+            return IndexType
         elif isinstance(t, T.Tensor):
-            return ExoTensor
+            inner = self.get_type(t.type)
+            if isinstance(inner, Float16Type):
+                return TensorTypeF16
+            elif isinstance(inner, Float32Type):
+                return TensorTypeF32
+            elif isinstance(inner, Float64Type):
+                return TensorTypeF64
+            else:
+                raise IRGeneratorError(f"Unknown tensor type {t}")
         else:
-            # TODO: add more types, but stupid exam regulations dont let me use GPT to make this quick :(
             raise IRGeneratorError(f"Unknown type {t}")

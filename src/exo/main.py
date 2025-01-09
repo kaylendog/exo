@@ -31,6 +31,7 @@ def main():
         version=f"%(prog)s version {exo.__version__}",
         help="print the version and exit",
     )
+    parser.add_argument("--debug-print-ir", action="store_true", help="print IR")
 
     args = parser.parse_args()
     srcname = Path(args.source[0]).stem
@@ -53,11 +54,19 @@ def main():
     else:
         stem = args.stem
 
+    # exo procedures tend to erase stdout
+    stdout = sys.stdout
+
     library = [
         proc
         for mod in args.source
         for proc in get_procs_from_module(load_user_code(mod))
     ]
+
+    if args.debug_print_ir:
+        for proc in library:
+            print(f"{proc}\n\n", file=stdout)
+        return
 
     if args.target == "mlir":
         exo.compile_procs_mlir(library, outdir, f"{stem}.mlir")
