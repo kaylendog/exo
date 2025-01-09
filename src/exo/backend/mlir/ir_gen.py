@@ -1,46 +1,46 @@
 from __future__ import annotations
+from typing import TypeAlias
 
 from xdsl.builder import Builder
 from xdsl.dialects.builtin import ModuleOp, FunctionType
-from xdsl.ir import Block, SSAValue, Region, Operation, BlockArgument
+from xdsl.ir import Block, SSAValue, Region, Operation, BlockArgument, OpResult
 from xdsl.utils.test_value import TestSSAValue
 from xdsl.utils.scoped_dict import ScopedDict
-from xdsl.dialects.arith import ConstantOp
 from xdsl.dialects.builtin import (
     Float16Type,
     Float32Type,
     Float64Type,
-    I8,
-    I32,
+    i8,
+    i16,
+    i32,
     IntegerType,
     IndexType,
+    TensorType,
 )
+from xdsl.dialects.arith import (
+    ConstantOp,
+    AddfOp,
+    SubfOp,
+    MulfOp,
+    DivfOp,
+    NegfOp,
+    AddiOp,
+    SubiOp,
+    MuliOp,
+    DivSIOp,
+    RemSIOp,
+)
+from xdsl.dialects.func import FuncOp, CallOp
+from xdsl.dialects.memref import LoadOp, StoreOp, AllocOp, DeallocOp
+from xdsl.dialects.scf import IfOp, ForOp
 
 from ...core.prelude import Sym
 from ...core.LoopIR import LoopIR, T
 
-from .dialect import (
-    AllocOp,
-    AssignOp,
-    BinOp,
-    CallOp,
-    IfOp,
-    ExternOp,
-    ForOp,
-    FreeOp,
-    ProcedureOp,
-    ReadOp,
-    ReduceOp,
-    USubOp,
-    U8,
-    U16,
-    TensorTypeF16,
-    TensorTypeF32,
-    TensorTypeF64,
-    TensorTypeI8,
-    TensorTypeU16,
-    TensorTypeU8,
-)
+
+TensorTypeF16: TypeAlias = TensorType[Float16Type]
+TensorTypeF32: TypeAlias = TensorType[Float32Type]
+TensorTypeF64: TypeAlias = TensorType[Float64Type]
 
 
 class IRGeneratorError(Exception):
@@ -76,11 +76,22 @@ class IRGenerator:
         self.declare_arg(sym, type)
         return self
 
-    def declare_arg(self, sym: Sym, type) -> BlockArgument:
+    def declare_arg(self, sym: Sym, type, block) -> BlockArgument:
         """
         Declare a symbol in the symbol table.
         """
-        raise NotImplementedError
+        assert self.symbol_table is not None
+        arg = BlockArgument(self.get_type(type), block)
+        self.symbol_table[sym.name()] = arg
+        return arg
+
+    def declare_value(self, sym: Sym, value: SSAValue) -> SSAValue:
+        """
+        Declare a value in the symbol table.
+        """
+        assert self.symbol_table is not None
+        self.symbol_table[sym.name()] = value
+        return value
 
     def with_declared_test_arg(self, sym: Sym, type):
         """
@@ -100,7 +111,7 @@ class IRGenerator:
 
     def generate(self, procs) -> ModuleOp:
         for proc in procs:
-            self.generate_proc(proc)
+            self.generate_procedure(proc)
 
         # verify module
         # TODO: none of the operations actually implement verify_()
@@ -124,37 +135,35 @@ class IRGenerator:
         self.last_op = op
         self.builder.insert(op)
 
-    def generate_proc(self, proc):
-        # prevent infinite generation of procedures - shouldn't happen, but LoopIR embeds entire procedures in its AST
-        # rather than just referring to them.
-        if proc.name in self.seen_procs:
+    def generate_procedure(self, procedure):
+        if procedure.name in self.seen_procs:
             return
 
-        self.seen_procs.add(proc.name)
+        self.seen_procs.add(procedure.name)
 
         parent_builder = self.builder
         self.symbol_table = ScopedDict[str, SSAValue]()
 
         # initialise function block
-        block = Block(arg_types=[self.get_type(arg.type) for arg in proc.args])
+        block = Block(arg_types=[self.get_type(arg.type) for arg in procedure.args])
         self.builder = Builder.at_end(block)
 
         # add arguments to symbol table
-        for arg, value in zip(proc.args, block.args):
-            self.declare_arg(arg.name, value)
+        for arg, value in zip(procedure.args, block.args):
+            self.declare_arg(arg.name, value, block)
 
         # generate function body
-        self.generate_stmt_list(proc.body)
+        self.generate_stmt_list(procedure.body)
 
         # cleanup
         self.symbol_table = None
         self.builder = parent_builder
 
-        input_types = [self.get_type(arg.type) for arg in proc.args]
+        input_types = [self.get_type(arg.type) for arg in procedure.args]
         func_type = FunctionType.from_lists(input_types, [])
 
         # insert procedure into module
-        self.insert(ProcedureOp(proc.name, func_type, Region(block)))
+        self.insert(FuncOp(procedure.name, func_type, Region(block)))
 
     def generate_stmt_list(self, stmts):
         assert self.symbol_table is not None
@@ -191,13 +200,22 @@ class IRGenerator:
         idx = self.generate_expr_list(assign.idx)
         rhs = self.generate_expr(assign.rhs)
 
-        self.insert(AssignOp(self.symbol(assign.name), assign.type, idx, rhs))
+        self.insert(StoreOp(operands=[rhs, self.symbol(assign.name), idx]))
 
     def generate_reduce_stmt(self, reduce):
         idx = self.generate_expr_list(reduce.idx)
         rhs = self.generate_expr(reduce.rhs)
 
-        self.insert(ReduceOp(self.symbol(reduce.name), reduce.type, idx, rhs))
+        memref = self.symbol(reduce.name)
+
+        # load value from memory, add rhs, store back - could use AtomicRMWOp here?
+        load = LoadOp(operands=[memref, idx])
+        inc = AddfOp(load.res, rhs)
+        store = StoreOp(operands=[inc, memref, idx])
+
+        self.insert(load)
+        self.insert(inc)
+        self.insert(store)
 
     def generate_write_config_stmt(self, write_config):
         # rhs = self.generate_expr(write_config.rhs)
@@ -212,12 +230,12 @@ class IRGenerator:
         # construct true_block
         true_block = Block()
         self.builder = Builder.at_end(true_block)
-        self.generate_stmt_list(if_stmt.true_stmts)
+        self.generate_stmt_list(if_stmt.body)
 
         # construct false_block
         false_block = Block()
         self.builder = Builder.at_end(false_block)
-        self.generate_stmt_list(if_stmt.false_stmts)
+        self.generate_stmt_list(if_stmt.or_else)
 
         # cleanup and construct
         self.builder = parent_builder
@@ -239,7 +257,7 @@ class IRGenerator:
         self.symbol_table = ScopedDict(parent_scope)
 
         # add loop variable to symbol table
-        self.declare_arg(for_stmt.iter, loop_block.args[0])
+        self.declare_arg(for_stmt.iter, loop_block.args[0], loop_block)
 
         # generate loop body
         self.generate_stmt_list(for_stmt.body)
@@ -248,57 +266,46 @@ class IRGenerator:
         self.symbol_table = parent_scope
         self.builder = parent_builder
 
-        self.insert(ForOp(lo, hi, Region(loop_block)))
+        self.insert(ForOp(lo, hi, ConstantOp(1), Region(loop_block)))
 
     def generate_alloc_stmt(self, alloc):
-        self.insert(
-            AllocOp(
-                self.symbol(alloc.name), self.get_type(alloc.type), alloc.mem.name()
-            )
-        )
+        op = AllocOp([], [], result_type=self.get_type(alloc.type))
+        self.insert(op)
+        self.declare_value(alloc.name, op.results[0])
+        return op.results[0]
 
     def generate_free_stmt(self, free):
-        self.insert(
-            FreeOp(self.symbol(free.name), self.get_type(free.type), free.mem.name())
-        )
+        self.insert(DeallocOp(operands=[self.symbol(free.name)], result_types=[]))
 
     def generate_call_stmt(self, call):
         # TODO: procedure generation should be top-level, then call should simply use a SymRefAttr to refer to the procedure
-        self.generate_proc(call.f)
+        self.generate_procedure(call.f)
         args = [self.generate_expr(arg) for arg in call.args]
-        self.insert(CallOp(call.f.name, args))
+        self.insert(CallOp(call.f.name, args, []))
 
     # def generate_window_stmt(self, window):
     #     rhs = self.generate_expr(window.rhs)
     #     self.insert(WindowStmtOp(self.symbol(window.name), rhs))
 
-    def generate_expr_list(self, exprs):
-        for expr in exprs:
-            self.generate_expr(expr)
+    def generate_expr_list(self, exprs) -> list[OpResult]:
+        return [self.generate_expr(expr) for expr in exprs]
 
-    def generate_expr(self, expr):
+    def generate_expr(self, expr) -> OpResult:
         if isinstance(expr, LoopIR.Read):
             return self.generate_read_expr(expr)
         elif isinstance(expr, LoopIR.Const):
             return self.generate_const_expr(expr)
-        elif isinstance(expr, LoopIR.USub):
-            return self.generate_usub_expr(expr)
         elif isinstance(expr, LoopIR.BinOp):
             return self.generate_binop_expr(expr)
-        elif isinstance(expr, LoopIR.Extern):
-            return self.generate_extern_expr(expr)
-        elif isinstance(expr, LoopIR.WindowExpr):
-            return self.generate_window_expr(expr)
-        elif isinstance(expr, LoopIR.Stride):
-            return self.generate_stride_expr(expr)
-        elif isinstance(expr, LoopIR.ReadConfig):
-            return self.generate_read_config_expr(expr)
         else:
             raise IRGeneratorError(f"Unknown expression {expr}")
 
     def generate_read_expr(self, read):
         idx = self.generate_expr_list(read.idx)
-        read = ReadOp(self.symbol(read.name), idx)
+        read = LoadOp(
+            operands=[self.symbol(read.name), idx],
+            result_types=[self.get_type(read.type)],
+        )
         self.insert(read)
         return read.res
 
@@ -308,20 +315,63 @@ class IRGenerator:
         return const.result
 
     def generate_usub_expr(self, usub):
-        usub = USubOp(self.generate_expr(usub.arg))
+        zero = ConstantOp(0)
+        usub = SubfOp(zero.result, self.generate_expr(usub.arg))
+        self.insert(zero)
         self.insert(usub)
-        return usub.res
+        return usub.result
 
     def generate_binop_expr(self, binop):
+        type = self.get_type(binop.type)
+
+        if type in [Float16Type, Float32Type, Float64Type]:
+            return self.generate_binop_expr_float(binop)
+        elif type in [i8, i16, i32]:
+            return self.generate_binop_expr_int(binop)
+        else:
+            raise IRGeneratorError(f"Unknown type {type}")
+
+    def generate_binop_expr_float(self, binop):
         lhs = self.generate_expr(binop.lhs)
         rhs = self.generate_expr(binop.rhs)
-        binop = BinOp(binop.op, lhs, rhs)
+
+        if binop.op == "+":
+            binop = AddfOp(lhs, rhs, result_type=type)
+        elif binop.op == "-":
+            binop = SubfOp(lhs, rhs, result_type=type)
+        elif binop.op == "*":
+            binop = MulfOp(lhs, rhs, result_type=type)
+        elif binop.op == "/":
+            binop = DivfOp(lhs, rhs, result_type=type)
+        else:
+            raise IRGeneratorError(f"Unknown binop {binop.op}")
+
         self.insert(binop)
-        return binop.res
+        return binop.result
+
+    def generate_binop_expr_int(self, binop):
+        lhs = self.generate_expr(binop.lhs)
+        rhs = self.generate_expr(binop.rhs)
+
+        if binop.op == "+":
+            binop = AddiOp(lhs, rhs, result_type=type)
+        elif binop.op == "-":
+            binop = SubiOp(lhs, rhs, result_type=type)
+        elif binop.op == "*":
+            binop = MuliOp(lhs, rhs, result_type=type)
+        elif binop.op == "/":
+            binop = DivSIOp(lhs, rhs, result_type=type)
+        elif binop.op == "%":
+            binop = RemSIOp(lhs, rhs, result_type=type)
+        else:
+            raise IRGeneratorError(f"Unknown binop {binop.op}")
+
+        self.insert(binop)
+        return binop.result
 
     def generate_extern_expr(self, extern):
         args = self.generate_expr_list(extern.args)
-        extern = ExternOp(extern.f.name(), args)
+        extern = CallOp(extern.f.name, args, [])
         self.insert(extern)
         return extern.res
 
@@ -341,14 +391,12 @@ class IRGenerator:
             return Float32Type
         elif isinstance(t, T.F64):
             return Float64Type
-        elif isinstance(t, T.INT8):
-            return I8
-        elif isinstance(t, T.UINT8):
-            return U8
+        elif isinstance(t, T.INT8) or isinstance(t, T.UINT8):
+            return i8
         elif isinstance(t, T.UINT16):
-            return U16
+            return i16
         elif isinstance(t, T.INT32) or isinstance(t, T.Int):
-            return I32
+            return i32
         elif isinstance(t, T.Bool):
             return IntegerType(1)
         elif isinstance(t, T.Index):
@@ -365,3 +413,7 @@ class IRGenerator:
                 raise IRGeneratorError(f"Unknown tensor type {t}")
         else:
             raise IRGeneratorError(f"Unknown type {t}")
+
+    def get_shape(self, type):
+        if self.get_type(type) not in [TensorTypeF16, TensorTypeF32, TensorTypeF64]:
+            raise IRGeneratorError(f"Unknown tensor type {type}")
