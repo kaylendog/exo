@@ -52,7 +52,6 @@ class IRGeneratorError(Exception):
     pass
 
 
-@dataclass(init=False)
 class IRGenerator:
     module: ModuleOp
     builder: Builder
@@ -265,7 +264,7 @@ class IRGenerator:
         return const.res
 
     def generate_usub_expr(self, usub):
-        usub = USubOp(self.generate_expr(usub.expr))
+        usub = USubOp(self.generate_expr(usub.arg))
         self.builder.insert(usub)
         return usub.res
 

@@ -11,6 +11,7 @@ dependencies = [
     "z3-solver==4.13.3.0",
     "yapf==0.40.2",
     "xdsl==0.25.0",
+    "filecheck>=1.0.1",
 ]
 description = "Exo: Exocompiled Array Language"
 authors = [{ name = "VCLS" }]
