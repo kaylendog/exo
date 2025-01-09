@@ -17,6 +17,7 @@ from xdsl.dialects.builtin import (
     i16,
     i32,
     i1,
+    IndexType,
     MemRefType,
     FloatAttr,
     IntegerAttr,
@@ -35,6 +36,7 @@ from xdsl.dialects.arith import (
     MuliOp,
     DivSIOp,
     RemSIOp,
+    IndexCastOp,
 )
 from xdsl.dialects.func import FuncOp, CallOp
 from xdsl.dialects.memref import LoadOp, StoreOp, AllocOp, DeallocOp
@@ -144,7 +146,9 @@ class IRGenerator:
         self.builder.insert(op)
 
     def cast_to_index(self, value: SSAValue) -> SSAValue:
-        self.em
+        cast = IndexCastOp(value, IndexType())
+        self.insert(cast)
+        return cast.result
 
     def generate_procedure(self, procedure):
         if procedure.name in self.seen_procs:
@@ -209,20 +213,21 @@ class IRGenerator:
 
     def generate_assign_stmt(self, assign):
         idx = self.generate_expr_list(assign.idx)
+        idx = [self.cast_to_index(i) for i in idx]
         rhs = self.generate_expr(assign.rhs)
-
-        self.insert(StoreOp(operands=[self.get_sym(assign.name), rhs, idx]))
+        self.insert(StoreOp(operands=[rhs, self.get_sym(assign.name), idx]))
 
     def generate_reduce_stmt(self, reduce):
         idx = self.generate_expr_list(reduce.idx)
+        idx = [self.cast_to_index(i) for i in idx]
         rhs = self.generate_expr(reduce.rhs)
 
         memref = self.get_sym(reduce.name)
 
         # load value from memory, add rhs, store back - could use AtomicRMWOp here?
-        load = LoadOp(operands=[memref, idx], result_types=[self.get_type(memref)])
-        inc = AddfOp(load.res, rhs)
-        store = StoreOp(operands=[inc, memref, idx])
+        load = LoadOp(operands=[memref, idx], result_types=[rhs.type])
+        inc = AddfOp(load.res, rhs, result_type=rhs.type)
+        store = StoreOp(operands=[inc.result, memref, idx])
 
         self.insert(load)
         self.insert(inc)
@@ -256,7 +261,9 @@ class IRGenerator:
 
     def generate_for_stmt(self, for_stmt):
         lo = self.generate_expr(for_stmt.lo)
+        lo = self.cast_to_index(lo)
         hi = self.generate_expr(for_stmt.hi)
+        hi = self.cast_to_index(hi)
 
         parent_builder = self.builder
         parent_scope = self.symbol_table
@@ -264,7 +271,7 @@ class IRGenerator:
         # construct loop block
         loop_block = Block(
             # TODO: this should be inferred from lo and hi
-            arg_types=[lo.type],
+            arg_types=[IndexType()],
         )
         self.builder = Builder.at_end(loop_block)
         self.symbol_table = ScopedDict(parent_scope)
@@ -280,7 +287,7 @@ class IRGenerator:
         self.symbol_table = parent_scope
         self.builder = parent_builder
 
-        self.insert(ForOp(lo, hi, ConstantOp(1, lo.type), [], Region(loop_block)))
+        self.insert(ForOp(lo, hi, ConstantOp(1, IndexType()), [], Region(loop_block)))
 
     def generate_alloc_stmt(self, alloc):
         op = AllocOp([], [], result_type=self.get_type(alloc.type))
@@ -316,6 +323,7 @@ class IRGenerator:
 
     def generate_read_expr(self, read):
         idx = self.generate_expr_list(read.idx)
+        idx = [self.cast_to_index(i) for i in idx]
         read = LoadOp(
             operands=[self.get_sym(read.name), idx],
             result_types=[self.get_type(read.type)],

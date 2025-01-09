@@ -41,8 +41,8 @@ def test_emit_assign_op():
     )
     gen.generate_assign_stmt(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 def test_emit_reduce_op():
@@ -79,8 +79,8 @@ def test_emit_reduce_op():
     )
     gen.generate_reduce_stmt(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 # def test_emit_write_config_op():
@@ -100,8 +100,8 @@ def test_emit_if_op():
     gen = IRGenerator()
     gen.generate_if_stmt(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 def test_emit_for_op():
@@ -121,8 +121,8 @@ def test_emit_for_op():
     gen = IRGenerator().with_empty_scope()
     gen.generate_for_stmt(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 def test_emit_alloc_op():
@@ -144,20 +144,44 @@ def test_emit_alloc_op():
     gen = IRGenerator().with_empty_scope()
     gen.generate_alloc_stmt(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 def test_emit_free_op():
     srcinfo = SrcInfo("test_mlir.py", 0)
 
-    ir = LoopIR.Free(Sym("x"), T.int, DRAM, srcinfo)
+    ir = LoopIR.Free(
+        Sym("x"),
+        T.Tensor(
+            [
+                LoopIR.Const(32, T.index, srcinfo),
+            ],
+            False,
+            T.f32,
+        ),
+        DRAM,
+        srcinfo,
+    )
 
-    gen = IRGenerator().with_empty_scope().with_declared_test_arg(Sym("x"), T.int)
+    gen = (
+        IRGenerator()
+        .with_empty_scope()
+        .with_declared_test_arg(
+            Sym("x"),
+            T.Tensor(
+                [
+                    LoopIR.Const(32, T.index, srcinfo),
+                ],
+                False,
+                T.f32,
+            ),
+        )
+    )
     gen.generate_free_stmt(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 # def test_emit_call_op():
@@ -202,8 +226,8 @@ def test_read_op():
     )
     gen.generate_read_expr(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 def test_const_op_int():
@@ -214,8 +238,8 @@ def test_const_op_int():
     gen = IRGenerator()
     gen.generate_const_expr(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 def test_const_op_float():
@@ -227,8 +251,8 @@ def test_const_op_float():
     gen.symbol_table = ScopedDict()
     gen.generate_const_expr(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 def test_const_op_bool():
@@ -240,8 +264,8 @@ def test_const_op_bool():
     gen.symbol_table = ScopedDict()
     gen.generate_const_expr(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 def test_emit_usub_op():
@@ -252,8 +276,8 @@ def test_emit_usub_op():
     gen = IRGenerator()
     gen.generate_usub_expr(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 def test_emit_bin_op():
@@ -270,8 +294,8 @@ def test_emit_bin_op():
     gen = IRGenerator()
     gen.generate_binop_expr(ir)
 
-    gen.last_op.verify()
-    print(gen.last_op)
+    print(gen.module)
+    gen.module.verify()
 
 
 # def test_emit_extern_op():
