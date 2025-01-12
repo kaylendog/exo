@@ -1,13 +1,12 @@
 import re
 from pathlib import Path
 
-from .ir_gen import IRGenerator
 from ...core.LoopIR import LoopIR, LoopIR_Do
 from ..mem_analysis import MemoryAnalysis
 from ..parallel_analysis import ParallelAnalysis
 from ..prec_analysis import PrecisionAnalysis
-from ...core.prelude import *
 from ..win_analysis import WindowAnalysis
+from .ir_gen import IRGenerator
 
 
 def sanitize_str(s):

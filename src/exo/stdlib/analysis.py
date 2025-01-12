@@ -1,7 +1,4 @@
-from exo import DRAM
-
 import exo.API_cursors as _PC
-from ..API import Procedure, SchedulingError
 
 
 def get_observed_stmts(stmt_cursor):

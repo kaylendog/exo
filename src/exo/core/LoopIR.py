@@ -119,7 +119,7 @@ module LoopIR {
          | Error()
          | Tensor( expr* hi, bool is_window, type type )
          -- src       - type of the tensor from which the window was created
-         -- as_tensor - tensor type as if this window were simply a tensor 
+         -- as_tensor - tensor type as if this window were simply a tensor
          --             itself
          -- window    - the expression that created this window
          | WindowType( type src_type, type as_tensor,

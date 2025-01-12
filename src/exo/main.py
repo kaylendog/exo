@@ -72,7 +72,7 @@ def main():
         exo.compile_procs_mlir(library, outdir, f"{stem}.mlir")
         write_depfile(outdir, stem)
     elif args.target == "c":
-        exo.compile_procs_c(library, outdir, f"{stem}.c", f"{stem}.h")
+        exo.compile_procs(library, outdir, f"{stem}.c", f"{stem}.h")
         write_depfile(outdir, stem)
     else:
         parser.error("Must provide a valid target (c/mlir).")

@@ -3,29 +3,25 @@ import inspect
 import re
 import types
 from pathlib import Path
-from typing import Optional, Union, List
 
 import exo.rewrite.LoopIR_scheduling as scheduling
-from exo.rewrite.LoopIR_scheduling import SchedulingError
-
-from .API_types import ProcedureBase, ExoType
-from .core import LoopIR as LoopIR
-from .backend.LoopIR_compiler import compile_to_strings, run_compile
-from .core.configs import Config
-from .frontend.boundscheck import CheckBounds
-from .core.memory import Memory
-from .frontend.parse_fragment import parse_fragment
-from .frontend.pattern_match import match_pattern
-from .core.prelude import *
-from .rewrite.new_eff import Check_Aliasing
-
-# Moved to new file
-from .core.proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
-from .frontend.pyparser import get_ast_from_python, Parser, get_src_locals
-from .frontend.typecheck import TypeChecker
 
 from . import API_cursors as C
+from .API_types import ExoType as ExoType
+from .API_types import ProcedureBase as ProcedureBase
+from .backend import LoopIR_compiler, mlir
+from .core import LoopIR as LoopIR
 from .core import internal_cursors as IC
+from .core.configs import Config
+
+# Moved to new file
+from .core.proc_eqv import assert_eqv_proc, check_eqv_proc, decl_new_proc, derive_proc
+from .frontend.boundscheck import CheckBounds
+from .frontend.parse_fragment import parse_fragment
+from .frontend.pyparser import Parser, get_ast_from_python, get_src_locals
+from .frontend.typecheck import TypeChecker
+from .rewrite.LoopIR_scheduling import SchedulingError as SchedulingError
+from .rewrite.new_eff import Check_Aliasing
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -152,7 +148,7 @@ def compile_procs(proc_list, basedir: Path, c_file: str, h_file: str):
 def compile_procs_to_strings(proc_list, h_file_name: str):
     assert isinstance(proc_list, list)
     assert all(isinstance(p, Procedure) for p in proc_list)
-    return LoopIR.run_compile([p._loopir_proc for p in proc_list], h_file_name)
+    return LoopIR_compiler.run_compile([p._loopir_proc for p in proc_list], h_file_name)
 
 
 # could probably be tider

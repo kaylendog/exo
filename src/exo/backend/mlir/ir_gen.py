@@ -1,51 +1,51 @@
 from __future__ import annotations
+
 from typing import TypeAlias
 
 from xdsl.builder import Builder
-from xdsl.dialects.builtin import ModuleOp, FunctionType
-from xdsl.ir import Block, SSAValue, Region, Operation, BlockArgument, OpResult
-from xdsl.utils.test_value import TestSSAValue
-from xdsl.utils.scoped_dict import ScopedDict
+from xdsl.dialects.arith import (
+    AddfOp,
+    AddiOp,
+    ConstantOp,
+    DivfOp,
+    DivSIOp,
+    IndexCastOp,
+    MulfOp,
+    MuliOp,
+    NegfOp,
+    RemSIOp,
+    SubfOp,
+    SubiOp,
+)
 from xdsl.dialects.builtin import (
+    BoolAttr,
     Float16Type,
     Float32Type,
     Float64Type,
+    FloatAttr,
+    FunctionType,
+    IndexType,
+    IntAttr,
+    IntegerAttr,
+    MemRefType,
+    ModuleOp,
     f16,
     f32,
     f64,
+    i1,
     i8,
     i16,
     i32,
-    i1,
-    IndexType,
-    MemRefType,
-    FloatAttr,
-    IntegerAttr,
-    IntAttr,
-    BoolAttr,
 )
-from xdsl.dialects.arith import (
-    ConstantOp,
-    AddfOp,
-    SubfOp,
-    MulfOp,
-    DivfOp,
-    NegfOp,
-    AddiOp,
-    SubiOp,
-    MuliOp,
-    DivSIOp,
-    RemSIOp,
-    IndexCastOp,
-)
+from xdsl.dialects.func import CallOp, FuncOp, ReturnOp
+from xdsl.dialects.memref import AllocOp, DeallocOp, LoadOp, StoreOp
+from xdsl.dialects.scf import ForOp, IfOp, YieldOp
 from xdsl.dialects.test import TestOp
-from xdsl.dialects.func import FuncOp, CallOp
-from xdsl.dialects.memref import LoadOp, StoreOp, AllocOp, DeallocOp
-from xdsl.dialects.scf import IfOp, ForOp, YieldOp
+from xdsl.ir import Block, BlockArgument, OpResult, Region, SSAValue
+from xdsl.utils.scoped_dict import ScopedDict
 
-from ...core.prelude import Sym
 from ...core.LoopIR import LoopIR, T
-
+from ...core.prelude import Sym
 
 MemRefTypeF16: TypeAlias = MemRefType[Float16Type]
 MemRefTypeF32: TypeAlias = MemRefType[Float32Type]
@@ -141,11 +141,12 @@ class IRGenerator:
         self.builder = Builder.at_end(block)
 
         # add arguments to symbol table
-        for idx, arg, value in enumerate(zip(procedure.args, block.args)):
+        for idx, (arg, value) in enumerate(zip(procedure.args, block.args)):
             self.declare_arg(arg.name, value, block, idx)
 
         # generate function body
         self.generate_stmt_list(procedure.body)
+        self.builder.insert(ReturnOp())
 
         # cleanup
         self.symbol_table = None
@@ -425,7 +426,12 @@ class IRGenerator:
             return i8
         elif isinstance(t, T.UINT16):
             return i16
-        elif isinstance(t, T.INT32) or isinstance(t, T.Int) or isinstance(t, T.Index):
+        elif (
+            isinstance(t, T.INT32)
+            or isinstance(t, T.Int)
+            or isinstance(t, T.Index)
+            or isinstance(t, T.Size)
+        ):
             return i32
         elif isinstance(t, T.Bool):
             return i1
@@ -438,9 +444,9 @@ class IRGenerator:
             elif inner == f64:
                 return MemRefTypeF64(f64, self.get_shape(t))
             else:
-                raise IRGeneratorError(f"Unknown tensor type {t}")
+                raise IRGeneratorError(f"Unknown tensor type '{t}'")
         else:
-            raise IRGeneratorError(f"Unknown type {t}")
+            raise IRGeneratorError(f"Unknown type '{t}'")
 
     def get_shape(self, type) -> list[IntegerAttr]:
         assert isinstance(type, T.Tensor)
@@ -448,6 +454,8 @@ class IRGenerator:
         def attr_from_expr(expr):
             if isinstance(expr, LoopIR.Const):
                 return IntAttr(expr.val)
+            elif isinstance(expr, LoopIR.Read):
+                pass
             else:
                 raise IRGeneratorError(f"Invalid shape argument {expr}")
 

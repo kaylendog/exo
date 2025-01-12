@@ -1,21 +1,20 @@
+from . import stdlib
 from .API import (
+    ExoType,
     Procedure,
     compile_procs,
-    compile_procs_to_strings,
     compile_procs_mlir,
+    compile_procs_to_strings,
     compile_procs_to_strings_mlir,
-    proc,
-    instr,
     config,
-    ExoType,
+    instr,
+    proc,
 )
-from .rewrite.LoopIR_scheduling import SchedulingError
-from .frontend.parse_fragment import ParseFragmentError
 from .core.configs import Config
-from .core.memory import Memory, DRAM
 from .core.extern import Extern
-
-from . import stdlib
+from .core.memory import DRAM, Memory
+from .frontend.parse_fragment import ParseFragmentError
+from .rewrite.LoopIR_scheduling import SchedulingError
 
 __version__ = "1.0.0"
 
