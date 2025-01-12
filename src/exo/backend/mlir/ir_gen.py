@@ -16,6 +16,10 @@ from xdsl.dialects.arith import (
     RemSIOp,
     SubfOp,
     SubiOp,
+    CmpfOp,
+    CmpiOp,
+    AndIOp,
+    OrIOp,
 )
 from xdsl.dialects.builtin import (
     BoolAttr,
@@ -50,6 +54,25 @@ from ...core.prelude import Sym
 MemRefTypeF16: TypeAlias = MemRefType[Float16Type]
 MemRefTypeF32: TypeAlias = MemRefType[Float32Type]
 MemRefTypeF64: TypeAlias = MemRefType[Float64Type]
+
+
+INTEGER_CMP_TABLE = {
+    "==": "eq",
+    "!=": "ne",
+    "<": "slt",
+    "<=": "sle",
+    ">": "sgt",
+    ">=": "sge",
+}
+
+FLOAT_CMP_TABLE = {
+    "==": "oeq",
+    "!=": "one",
+    "<": "olt",
+    "<=": "ole",
+    ">": "ogt",
+    ">=": "oge",
+}
 
 
 class IRGeneratorError(Exception):
@@ -306,12 +329,21 @@ class IRGenerator:
     def generate_read_expr(self, read):
         idx = self.generate_expr_list(read.idx)
         idx = [self.cast_to_index(i) for i in idx]
-        read = LoadOp(
-            operands=[self.get_sym(read.name), idx],
-            result_types=[self.get_type(read.type)],
-        )
-        self.builder.insert(read)
-        return read.res
+
+        operand = self.get_sym(read.name)
+
+        # if operand is a tensor, we need to load from memory
+        if operand.type in [MemRefTypeF16, MemRefTypeF32, MemRefTypeF64]:
+            read = LoadOp(
+                operands=[self.get_sym(read.name), idx],
+                result_types=[self.get_type(read.type)],
+            )
+            self.builder.insert(read)
+            return read.res
+
+        # otherwise, we can just return the operand
+        else:
+            return operand
 
     def generate_const_expr(self, const):
         type = self.get_type(const.type)
@@ -353,8 +385,10 @@ class IRGenerator:
             return self.generate_binop_expr_float(binop)
         elif type in [i8, i16, i32]:
             return self.generate_binop_expr_int(binop)
+        elif type == i1:
+            return self.generate_binop_expr_cmp(binop)
         else:
-            raise IRGeneratorError(f"Unknown type {type}")
+            raise IRGeneratorError(f"Unknown type '{type.name}'")
 
     def generate_binop_expr_float(self, binop):
         lhs = self.generate_expr(binop.lhs)
@@ -392,6 +426,36 @@ class IRGenerator:
             binop = RemSIOp(lhs, rhs, result_type=type)
         else:
             raise IRGeneratorError(f"Unknown binop {binop.op}")
+
+        self.builder.insert(binop)
+        return binop.result
+
+    def generate_binop_expr_cmp(self, binop):
+        lhs = self.generate_expr(binop.lhs)
+        rhs = self.generate_expr(binop.rhs)
+
+        # boolean operations
+        if lhs.type == i1:
+            if binop.op == "and":
+                binop = AndIOp(lhs, rhs)
+            elif binop.op == "or":
+                binop = OrIOp(lhs, rhs)
+            else:
+                raise IRGeneratorError(f"Unknown boolean operator '{binop.op}'")
+        # cmpi
+        elif lhs.type in [i8, i16, i32]:
+            op = INTEGER_CMP_TABLE[binop.op]
+            if op is None:
+                raise IRGeneratorError(f"Unknown comparison operator '{binop.op}'")
+
+            binop = CmpiOp(lhs, rhs, op)
+        # cmpf
+        else:
+            op = FLOAT_CMP_TABLE[binop.op]
+            if op is None:
+                raise IRGeneratorError(f"Unknown comparison operator '{binop.op}'")
+
+            binop = CmpfOp(lhs, rhs, op)
 
         self.builder.insert(binop)
         return binop.result

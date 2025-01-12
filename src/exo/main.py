@@ -68,8 +68,12 @@ def main():
             print(f"{proc}\n\n", file=stdout)
         return
 
+    sys.stdout = stdout
+
     if args.target == "mlir":
-        exo.compile_procs_mlir(library, outdir, f"{stem}.mlir")
+        exo.compile_procs_mlir(
+            library, outdir, f"{stem}.mlir", write_stdout=(outdir == Path("-"))
+        )
         write_depfile(outdir, stem)
     elif args.target == "c":
         exo.compile_procs(library, outdir, f"{stem}.c", f"{stem}.h")

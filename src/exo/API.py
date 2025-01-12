@@ -152,9 +152,12 @@ def compile_procs_to_strings(proc_list, h_file_name: str):
 
 
 # could probably be tider
-def compile_procs_mlir(proc_list, basedir: Path, mlir_file: str):
+def compile_procs_mlir(proc_list, basedir: Path, mlir_file: str, write_stdout=False):
     mlir_data = compile_procs_to_strings_mlir(proc_list, mlir_file)
-    (basedir / mlir_file).write_text(mlir_data)
+    if write_stdout:
+        print(mlir_data)
+    else:
+        (basedir / mlir_file).write_text(mlir_data)
 
 
 def compile_procs_to_strings_mlir(proc_list, mlir_file_name: str):
