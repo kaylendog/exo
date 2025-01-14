@@ -1,5 +1,4 @@
 import re
-from pathlib import Path
 
 from ...core.LoopIR import LoopIR, LoopIR_Do
 from ..mem_analysis import MemoryAnalysis
@@ -169,17 +168,13 @@ def find_all_configs(proc_list):
 # top level compiler function called by tests!
 
 
-def run_compile(proc_list, mlir_file_name):
-    file_stem = str(Path(mlir_file_name).stem)
-    lib_name = sanitize_str(file_stem)
-    body = compile_to_strings(lib_name, proc_list)
-
-    return body
+def run_compile(proc_list):
+    analyzed_proc_list = analyze_procedures(proc_list)
+    return IRGenerator().generate(analyzed_proc_list)
 
 
-def compile_to_strings(lib_name, proc_list):
+def analyze_procedures(proc_list):
     proc_list = list(sorted(find_all_subprocs(proc_list), key=lambda x: x.name))
-    instrs_global = []
     analyzed_proc_list = []
 
     # Compile proc bodies
@@ -189,15 +184,14 @@ def compile_to_strings(lib_name, proc_list):
             raise TypeError(f"multiple procs named {p.name}")
         seen_procs.add(p.name)
 
-        # don't compile instruction procedures, but add a comment.
         if p.instr is not None and p.instr.c_global:
-            instrs_global.append(p.instr.c_global)
-        else:
-            p = ParallelAnalysis().run(p)
-            p = PrecisionAnalysis().run(p)
-            p = WindowAnalysis().apply_proc(p)
-            p = MemoryAnalysis().run(p)
+            continue
 
-            analyzed_proc_list.append(p)
+        p = ParallelAnalysis().run(p)
+        p = PrecisionAnalysis().run(p)
+        p = WindowAnalysis().apply_proc(p)
+        p = MemoryAnalysis().run(p)
 
-    return IRGenerator().generate(analyzed_proc_list)
+        analyzed_proc_list.append(p)
+
+    return analyzed_proc_list

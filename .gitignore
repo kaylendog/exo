@@ -26,3 +26,6 @@ configure
 dependencies/chipyard
 
 .vscode
+
+# filecheck depfiles
+*.d

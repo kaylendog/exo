@@ -446,14 +446,18 @@ class IRGenerator:
         elif lhs.type in [i8, i16, i32]:
             op = INTEGER_CMP_TABLE[binop.op]
             if op is None:
-                raise IRGeneratorError(f"Unknown comparison operator '{binop.op}'")
+                raise IRGeneratorError(
+                    f"Unknown integer comparison operator '{binop.op}'"
+                )
 
             binop = CmpiOp(lhs, rhs, op)
         # cmpf
         else:
             op = FLOAT_CMP_TABLE[binop.op]
             if op is None:
-                raise IRGeneratorError(f"Unknown comparison operator '{binop.op}'")
+                raise IRGeneratorError(
+                    f"Unknown float comparison operator '{binop.op}'"
+                )
 
             binop = CmpfOp(lhs, rhs, op)
 
@@ -519,7 +523,7 @@ class IRGenerator:
             if isinstance(expr, LoopIR.Const):
                 return IntAttr(expr.val)
             elif isinstance(expr, LoopIR.Read):
-                pass
+                raise NotImplementedError("Dynamic shapes not supported")
             else:
                 raise IRGeneratorError(f"Invalid shape argument {expr}")
 

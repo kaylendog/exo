@@ -3,11 +3,6 @@ from exo import *
 
 
 @proc
-def filecheck(A: size, B: size):
+def filecheck(A: size):
     if A > 0:
-        pass
-    else:
-        pass
-
-    if A > 0 and B > 0:
         pass

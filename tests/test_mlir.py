@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 from exo.backend.mlir.ir_gen import IRGenerator
 from exo.core.LoopIR import LoopIR, T
 from exo.core.memory import DRAM
 from exo.core.prelude import SrcInfo, Sym
+
+from exo import proc, compile_procs_to_module
 
 from xdsl.utils.scoped_dict import ScopedDict
 
@@ -13,6 +17,34 @@ TENSOR_TYPE = T.Tensor(
     False,
     T.f32,
 )
+
+
+def test_emit_procedure():
+    @proc
+    def noop():
+        pass
+
+    module = compile_procs_to_module([noop])
+    print(module)
+
+
+def test_emit_procedure_with_args():
+    @proc
+    def unary_noop(x: f32[16]):
+        pass
+
+    module = compile_procs_to_module([unary_noop])
+    print(module)
+
+
+def test_emit_procedure_preserves_args():
+    @proc
+    def unary_preserves_args(x: f32[16], idx: index):
+        assert idx >= 0 and idx < 16
+        x[idx] = 0.0
+
+    module = compile_procs_to_module([unary_preserves_args])
+    print(module)
 
 
 def test_emit_assign_op():
