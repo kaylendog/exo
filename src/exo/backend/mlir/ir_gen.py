@@ -98,13 +98,12 @@ class IRGenerator:
         self.symbol_table = ScopedDict()
         return self
 
-    def declare_arg(self, sym: Sym, type, block, idx) -> BlockArgument:
+    def declare_arg(self, sym: Sym, arg: BlockArgument) -> BlockArgument:
         """
         Declare a symbol in the symbol table.
         """
         assert self.symbol_table is not None
-        arg = BlockArgument(self.get_type(type), block, idx)
-        self.symbol_table[sym.name()] = arg
+        self.declare_value(sym, arg)
         return arg
 
     def declare_value(self, sym: Sym, value: SSAValue) -> SSAValue:
@@ -164,8 +163,8 @@ class IRGenerator:
         self.builder = Builder.at_end(block)
 
         # add arguments to symbol table
-        for idx, (arg, value) in enumerate(zip(procedure.args, block.args)):
-            self.declare_arg(arg.name, value, block, idx)
+        for idx, (proc_arg, block_arg) in enumerate(zip(procedure.args, block.args)):
+            self.declare_arg(proc_arg.name, block_arg)
 
         # generate function body
         self.generate_stmt_list(procedure.body)
