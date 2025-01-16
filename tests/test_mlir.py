@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from exo.backend.mlir.ir_gen import IRGenerator
+import pytest
+
+from exo.backend.mlir.ir_gen import IRGenerator, IRGeneratorError
 from exo.core.LoopIR import LoopIR, T
 from exo.core.memory import DRAM
 from exo.core.prelude import SrcInfo, Sym
@@ -8,6 +10,8 @@ from exo.core.prelude import SrcInfo, Sym
 from exo import proc, compile_procs_to_module
 
 from xdsl.utils.scoped_dict import ScopedDict
+from xdsl.utils.test_value import TestSSAValue
+from xdsl.dialects.builtin import i32
 
 SRC_INFO = SrcInfo("test_mlir.py", 0)
 TENSOR_TYPE = T.Tensor(
@@ -45,6 +49,24 @@ def test_emit_procedure_preserves_args():
 
     module = compile_procs_to_module([unary_preserves_args])
     print(module)
+
+
+def test_get_sym():
+    gen = IRGenerator().with_empty_scope()
+    sym = Sym("test")
+
+    with pytest.raises(IRGeneratorError, match="Unknown symbol test"):
+        gen.get_sym(sym)
+
+    # Test symbol found
+    test_value = TestSSAValue(i32)
+    same_value = gen.declare_value(sym, test_value)
+
+    assert test_value is same_value
+
+    res_value = gen.get_sym(sym)
+
+    assert res_value is test_value
 
 
 def test_emit_assign_op():
