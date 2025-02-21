@@ -8,9 +8,9 @@ dependencies = [
     "asdl-adt==0.1.0",
     "asdl==0.1.5",
     "build==1.2.2.post1",
-    "z3-solver==4.13.3.0",
-    "yapf==0.40.2",
-    "xdsl==0.25.0",
+    "z3-solver==4.13.4.0",
+    "yapf==0.43.0",
+    "xdsl==0.28.0",
 ]
 description = "Exo: Exocompiled Array Language"
 authors = [{ name = "VCLS" }]
@@ -39,13 +39,13 @@ scripts = { exocc = "exo.main:main" }
 
 [dependency-groups]
 dev = [
-    "coverage==7.6.4",
+    "coverage==7.6.10",
     "pre-commit==4.0.1",
     "pytest-cov==6.0.0",
     "pytest-xdist==3.6.1",
-    "pytest==8.3.3",
+    "pytest==8.3.4",
     "tox==4.23.2",
-    "numpy==2.1.2",
+    "numpy==2.2.1",
     "Pillow==11.0.0",
     "filecheck>=1.0.1",
     "lit>=18.1.8",
