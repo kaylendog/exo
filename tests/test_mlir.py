@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo.backend.mlir.ir_gen import IRGenerator, IRGeneratorError
+from exo.backend.mlir.generator import IRGenerator, IRGeneratorError
 from exo.core.LoopIR import LoopIR, T
 from exo.core.memory import DRAM
 from exo.core.prelude import SrcInfo, Sym

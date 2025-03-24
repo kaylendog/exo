@@ -22,6 +22,7 @@ from .frontend.pyparser import Parser, get_ast_from_python, get_src_locals
 from .frontend.typecheck import TypeChecker
 from .rewrite.LoopIR_scheduling import SchedulingError as SchedulingError
 from .rewrite.new_eff import Check_Aliasing
+from .backend.LoopIR_compiler import compile_to_strings
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
